@@ -95,6 +95,7 @@ func initialize(t *testing.T, url, token string) (int, http.Header, string) {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, url+"/mcp", strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"0"}}}`))
+	req.Host = "mcp.test"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	if token != "" {
