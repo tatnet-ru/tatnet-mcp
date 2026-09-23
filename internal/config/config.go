@@ -20,14 +20,35 @@ type Config struct {
 	PublicURL string
 	// MetricsToken закрывает /metrics: апп торчит в интернет, а метрики — нет.
 	MetricsToken string
+	// OIDCIssuer — сервер авторизации (Hydra), выдающий токены клиентам MCP.
+	// Пусто — вход через OAuth выключен, работают только ключи /v1.
+	OIDCIssuer string
+	// OIDCJWKSURL — ключи подписи Hydra. Отдельно от издателя: изнутри
+	// площадки публичный адрес может быть недоступен (хайрпин), и ключи тогда
+	// берутся с внутреннего.
+	OIDCJWKSURL string
+	// InternalSecret — служебный канал к /v1 «от имени подключения»; пара к
+	// V1_MCP_INTERNAL_SECRET у api. Без него OAuth не включается.
+	InternalSecret string
 }
+
+// Resource — адрес MCP-ресурса, для которого выдаются токены (RFC 8707/9728).
+func (c Config) Resource() string { return c.PublicURL + "/mcp" }
 
 func Load() (Config, error) {
 	c := Config{
-		Listen:       env("LISTEN", ":8080"),
-		APIBaseURL:   strings.TrimRight(env("API_BASE_URL", "https://api.tatnet.ru/v1"), "/"),
-		PublicURL:    strings.TrimRight(env("PUBLIC_URL", "https://mcp.tatnet.ru"), "/"),
-		MetricsToken: os.Getenv("METRICS_TOKEN"),
+		Listen:         env("LISTEN", ":8080"),
+		APIBaseURL:     strings.TrimRight(env("API_BASE_URL", "https://api.tatnet.ru/v1"), "/"),
+		PublicURL:      strings.TrimRight(env("PUBLIC_URL", "https://mcp.tatnet.ru"), "/"),
+		MetricsToken:   os.Getenv("METRICS_TOKEN"),
+		OIDCIssuer:     strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
+		InternalSecret: strings.TrimSpace(os.Getenv("MCP_INTERNAL_SECRET")),
+	}
+	c.OIDCJWKSURL = env("OIDC_JWKS_URL", c.OIDCIssuer+"/.well-known/jwks.json")
+	if c.OIDCIssuer != "" && c.InternalSecret == "" {
+		// Токен клиента в /v1 не пробрасывается, а без секрета ходить туда
+		// «от имени подключения» нечем: вход бы работал, а каждый вызов — нет.
+		return c, fmt.Errorf("OIDC_ISSUER задан, а MCP_INTERNAL_SECRET нет")
 	}
 	for name, v := range map[string]string{"API_BASE_URL": c.APIBaseURL, "PUBLIC_URL": c.PublicURL} {
 		u, err := url.Parse(v)

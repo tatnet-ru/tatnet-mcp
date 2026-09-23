@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,6 +38,10 @@ type fakeAPI struct {
 	// сколько раз отдать «building», прежде чем сборка станет терминальной
 	pending int
 	final   string
+
+	grantCalls      atomic.Int32
+	grantRevoked    atomic.Bool
+	grantLeakedAuth atomic.Bool
 }
 
 func newFakeAPI() *fakeAPI {
@@ -47,7 +52,19 @@ func newFakeAPI() *fakeAPI {
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != "Bearer "+goodKey {
+	// Два пути, как у api: ключ в Authorization или служебный канал MCP
+	// «от имени подключения» (X-TatNet-Grant + секрет). Отозванное
+	// подключение — 401, как в v1_auth.
+	viaGrant := r.Header.Get("X-TatNet-Grant") != ""
+	if viaGrant {
+		f.grantCalls.Add(1)
+		if r.Header.Get("Authorization") != "" {
+			f.grantLeakedAuth.Store(true)
+		}
+	}
+	okGrant := viaGrant && r.Header.Get("X-TatNet-Internal-Secret") == internalSecret &&
+		r.Header.Get("X-TatNet-Grant") == liveGrant && !f.grantRevoked.Load()
+	if !okGrant && r.Header.Get("Authorization") != "Bearer "+goodKey {
 		w.WriteHeader(401)
 		_, _ = w.Write([]byte(`{"error":{"code":"unauthorized","message":"invalid API key"}}`))
 		return
