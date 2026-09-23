@@ -22,6 +22,7 @@ import (
 
 	"github.com/tatnet-ru/tatnet-mcp/internal/authn"
 	"github.com/tatnet-ru/tatnet-mcp/internal/config"
+	"github.com/tatnet-ru/tatnet-mcp/internal/dcr"
 	"github.com/tatnet-ru/tatnet-mcp/internal/metrics"
 	"github.com/tatnet-ru/tatnet-mcp/internal/tools"
 )
@@ -116,6 +117,9 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 		// которые ищут метаданные у хоста.
 		mux.HandleFunc("GET "+metadataPath, serveMeta)
 		mux.HandleFunc("GET /.well-known/oauth-protected-resource", serveMeta)
+		// Регистрация клиентов через прослойку: Hydra отдаёт пустые поля,
+		// которые строгие клиенты отвергают (см. internal/dcr).
+		mux.Handle("/oauth/register", dcr.Handler(cfg.OIDCIssuer+"/oauth2/register", nil))
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.Handle("GET /metrics", metrics.Handler(cfg.MetricsToken))
