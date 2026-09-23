@@ -37,7 +37,7 @@ func (c Config) Resource() string { return c.PublicURL + "/mcp" }
 
 func Load() (Config, error) {
 	c := Config{
-		Listen:         env("LISTEN", ":8080"),
+		Listen:         listenAddr(),
 		APIBaseURL:     strings.TrimRight(env("API_BASE_URL", "https://api.tatnet.ru/v1"), "/"),
 		PublicURL:      strings.TrimRight(env("PUBLIC_URL", "https://mcp.tatnet.ru"), "/"),
 		MetricsToken:   os.Getenv("METRICS_TOKEN"),
@@ -64,4 +64,17 @@ func env(name, def string) string {
 		return v
 	}
 	return def
+}
+
+// listenAddr: явный LISTEN (хост, стенд) → PORT, который отдаёт Apps Platform
+// → :8080. Без PORT сервер слушал бы не тот порт, на который платформа шлёт
+// трафик: живой процесс без единого ответа.
+func listenAddr() string {
+	if v := strings.TrimSpace(os.Getenv("LISTEN")); v != "" {
+		return v
+	}
+	if p := strings.TrimSpace(os.Getenv("PORT")); p != "" {
+		return ":" + p
+	}
+	return ":8080"
 }
