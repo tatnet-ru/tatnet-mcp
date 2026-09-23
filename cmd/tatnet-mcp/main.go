@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -74,11 +75,19 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 	}, &http.Client{Timeout: 10 * time.Second})
 	counted := func(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
 		ti, err := verifier.Verify(ctx, token, r)
+		kind := "jwt"
+		if strings.HasPrefix(token, authn.KeyPrefix) {
+			kind = "api_key"
+		}
+		// Причина отказа — в лог: без неё «клиент не подключился» не
+		// разобрать. Сам токен не пишется никогда.
 		switch {
 		case errors.Is(err, auth.ErrInvalidToken):
 			metrics.AuthFailures.WithLabelValues("invalid").Inc()
+			log.Warn("токен отвергнут", "kind", kind, "reason", err.Error(), "ua", r.UserAgent())
 		case err != nil:
 			metrics.AuthFailures.WithLabelValues("unavailable").Inc()
+			log.Error("проверка токена не удалась", "kind", kind, "reason", err.Error())
 		}
 		return ti, err
 	}
