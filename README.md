@@ -57,7 +57,7 @@ ChatGPT и любого клиента [Model Context Protocol](https://modelcon
 действиями.
 
 ```bash
-claude mcp add --transport http tatnet https://mcp.tatnet.ru/mcp \
+claude mcp add --transport http tatnet https://mcp.tatnet.cloud/mcp \
   --header "Authorization: Bearer tn_live_…"
 ```
 
@@ -67,7 +67,8 @@ claude mcp add --transport http tatnet https://mcp.tatnet.ru/mcp \
 |---|---|---|
 | `LISTEN` | `:8080` | |
 | `API_BASE_URL` | `https://api.tatnet.ru/v1` | stage — `…stage…/v1` |
-| `PUBLIC_URL` | `https://mcp.tatnet.ru` | внешний адрес (для метаданных OAuth) |
+| `PUBLIC_URL` | `https://mcp.tatnet.cloud` | основной внешний адрес (метаданные OAuth) |
+| `EXTRA_PUBLIC_URLS` | — | доп. имена через запятую (`https://mcp.tatnet.ru` — на переход); на каждом имени сервер говорит от его лица |
 | `METRICS_TOKEN` | — | без него `/metrics` отвечает 404 |
 
 Метрики: `tatnet_mcp_tool_calls_total{tool,outcome}`,

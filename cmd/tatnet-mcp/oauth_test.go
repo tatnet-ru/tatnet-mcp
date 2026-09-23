@@ -85,6 +85,7 @@ func setupOAuth(t *testing.T) (*fakeAPI, *fakeHydra, *httptest.Server) {
 	h := Routes(config.Config{
 		APIBaseURL: apiSrv.URL, PublicURL: publicURL,
 		OIDCIssuer: hydra.srv.URL, OIDCJWKSURL: hydra.srv.URL + "/jwks", InternalSecret: internalSecret,
+		ExtraPublicURLs: []string{"https://mcp.old"},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -93,9 +94,14 @@ func setupOAuth(t *testing.T) (*fakeAPI, *fakeHydra, *httptest.Server) {
 
 func initialize(t *testing.T, url, token string) (int, http.Header, string) {
 	t.Helper()
+	return initializeAt(t, url, "mcp.test", token)
+}
+
+func initializeAt(t *testing.T, url, host, token string) (int, http.Header, string) {
+	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, url+"/mcp", strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"0"}}}`))
-	req.Host = "mcp.test"
+	req.Host = host
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	if token != "" {
@@ -121,7 +127,9 @@ func TestUnauthenticatedClientIsPointedToTheAuthorizationServer(t *testing.T) {
 		t.Fatalf("WWW-Authenticate must point to resource metadata: %q", wa)
 	}
 	for _, path := range []string{"/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource"} {
-		resp, err := http.Get(srv.URL + path)
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		req.Host = "mcp.test"
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -229,5 +237,41 @@ func TestAPIKeysStillWorkNextToOAuth(t *testing.T) {
 	defer s.Close()
 	if _, text, isErr := call(t, s, "whoami", nil); isErr {
 		t.Fatal(text)
+	}
+}
+
+// Переезд имени: на каждом имени сервер говорит от его лица, и токен,
+// выданный для одного имени, на другом не годится.
+func TestEachHostSpeaksForItself(t *testing.T) {
+	_, hydra, srv := setupOAuth(t)
+	for host, pub := range map[string]string{"mcp.test": publicURL, "mcp.old": "https://mcp.old"} {
+		code, hdr, _ := initializeAt(t, srv.URL, host, "")
+		want := `resource_metadata="` + pub + `/.well-known/oauth-protected-resource/mcp"`
+		if code != 401 || !strings.Contains(hdr.Get("WWW-Authenticate"), want) {
+			t.Errorf("%s: 401 must point to its own metadata, got %d %q", host, code, hdr.Get("WWW-Authenticate"))
+		}
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/.well-known/oauth-protected-resource/mcp", nil)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var meta map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&meta)
+		resp.Body.Close()
+		if meta["resource"] != pub+"/mcp" {
+			t.Errorf("%s: resource = %v", host, meta["resource"])
+		}
+	}
+	oldTok := hydra.token(t, func(c jwt.MapClaims) { c["aud"] = []string{"https://mcp.old/mcp"} })
+	if code, _, body := initializeAt(t, srv.URL, "mcp.old", oldTok); code != 200 {
+		t.Fatalf("token for mcp.old must work on mcp.old: %d %s", code, body)
+	}
+	// Тот же токен (уже в кеше проверенных) на другом имени — отказ.
+	if code, _, _ := initializeAt(t, srv.URL, "mcp.test", oldTok); code != 401 {
+		t.Fatalf("token for mcp.old must not work on mcp.test, got %d", code)
+	}
+	if code, _, _ := initializeAt(t, srv.URL, "evil.example", oldTok); code != http.StatusMisdirectedRequest {
+		t.Fatalf("unknown host must be refused, got %d", code)
 	}
 }
