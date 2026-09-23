@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -61,11 +62,15 @@ func main() {
 // гонял ровно то, что обслуживает прод.
 func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 	t := tools.New(cfg.APIBaseURL)
+	t.InternalSecret = cfg.InternalSecret
 	server := mcp.NewServer(&mcp.Implementation{Name: "tatnet", Title: "TatNet", Version: version},
 		&mcp.ServerOptions{Instructions: tools.Instructions, Logger: log})
 	t.Register(server)
 
-	verifier := authn.NewVerifier(cfg.APIBaseURL, &http.Client{Timeout: 10 * time.Second})
+	verifier := authn.NewVerifier(authn.Config{
+		APIBase: cfg.APIBaseURL, Issuer: cfg.OIDCIssuer, JWKSURL: cfg.OIDCJWKSURL,
+		Resource: cfg.Resource(), InternalSecret: cfg.InternalSecret,
+	}, &http.Client{Timeout: 10 * time.Second})
 	counted := func(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
 		ti, err := verifier.Verify(ctx, token, r)
 		switch {
@@ -78,16 +83,40 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 	}
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, Logger: log})
-	// Метаданных защищённого ресурса (RFC 9728) пока нет намеренно: сервера
-	// авторизации ещё нет, и пустой список серверов обещал бы вход, которого
-	// не существует. Появятся вместе с OAuth.
-	protected := auth.RequireBearerToken(counted, &auth.RequireBearerTokenOptions{
+	// Метаданные защищённого ресурса (RFC 9728): по ссылке из 401 любой клиент
+	// MCP находит сервер авторизации, регистрируется там сам (DCR) и ведёт
+	// человека на вход и экран согласия. Без OAuth ссылки нет — пустой список
+	// серверов обещал бы вход, которого не существует.
+	opts := &auth.RequireBearerTokenOptions{
 		// Ключи /v1 бывают бессрочными — срок токена здесь не обязателен.
 		AllowMissingExpiration: true,
-	})(mcpHandler)
+	}
+	metadataPath := "/.well-known/oauth-protected-resource/mcp"
+	if cfg.OIDCIssuer != "" {
+		opts.ResourceMetadataURL = cfg.PublicURL + metadataPath
+	}
+	protected := auth.RequireBearerToken(counted, opts)(mcpHandler)
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", protected)
+	if cfg.OIDCIssuer != "" {
+		meta := map[string]any{
+			"resource":                 cfg.Resource(),
+			"authorization_servers":    []string{cfg.OIDCIssuer},
+			"scopes_supported":         []string{"openid", "offline_access"},
+			"bearer_methods_supported": []string{"header"},
+			"resource_name":            "TatNet",
+		}
+		serveMeta := func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			_ = json.NewEncoder(w).Encode(meta)
+		}
+		// Путь с суффиксом ресурса — по RFC 9728; корневой — для клиентов,
+		// которые ищут метаданные у хоста.
+		mux.HandleFunc("GET "+metadataPath, serveMeta)
+		mux.HandleFunc("GET /.well-known/oauth-protected-resource", serveMeta)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.Handle("GET /metrics", metrics.Handler(cfg.MetricsToken))
 	return mux

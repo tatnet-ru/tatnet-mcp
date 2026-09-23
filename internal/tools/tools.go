@@ -22,6 +22,8 @@ import (
 
 type Tools struct {
 	APIBase string
+	// InternalSecret — служебный канал к /v1 для подключений (OAuth).
+	InternalSecret string
 	// HTTP — для обычных вызовов, с таймаутом.
 	HTTP *http.Client
 	// Stream — для потока лога сборки: без общего таймаута, срок задаёт ctx.
@@ -64,7 +66,7 @@ func (t *Tools) client(ctx context.Context) (*tatnet.ClientWithResponses, error)
 	if !ok {
 		return nil, fmt.Errorf("not authenticated")
 	}
-	return tatnet.NewClientWithResponses(t.APIBase, tatnet.WithAPIKey(p.APIKey), tatnet.WithHTTPClient(t.HTTP))
+	return tatnet.NewClientWithResponses(t.APIBase, tatnet.WithRequestEditorFn(p.Editor(t.InternalSecret)), tatnet.WithHTTPClient(t.HTTP))
 }
 
 func (t *Tools) streamClient(ctx context.Context) (*tatnet.Client, error) {
@@ -72,7 +74,7 @@ func (t *Tools) streamClient(ctx context.Context) (*tatnet.Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("not authenticated")
 	}
-	return tatnet.NewClient(t.APIBase, tatnet.WithAPIKey(p.APIKey), tatnet.WithHTTPClient(t.Stream))
+	return tatnet.NewClient(t.APIBase, tatnet.WithRequestEditorFn(p.Editor(t.InternalSecret)), tatnet.WithHTTPClient(t.Stream))
 }
 
 func ptr[T any](v T) *T { return &v }
