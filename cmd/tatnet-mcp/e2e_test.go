@@ -39,6 +39,7 @@ type fakeAPI struct {
 	pending int
 	final   string
 
+	lastCreate      map[string]any
 	grantCalls      atomic.Int32
 	grantRevoked    atomic.Bool
 	grantLeakedAuth atomic.Bool
@@ -114,6 +115,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.creates++
+		f.lastCreate = body
 		id := fmt.Sprintf("app%d", f.creates)
 		st, _ := body["source_type"].(string)
 		if st == "" {
@@ -452,5 +454,24 @@ func TestEmptyListUnderScopedKeyIsNotAnAbsence(t *testing.T) {
 	out, _, _ = call(t, s, "whoami", nil)
 	if out["key_is_scoped"] != true {
 		t.Fatalf("whoami: %v", out)
+	}
+}
+
+func TestDeployFilesCreatesOnlySitesAndRefusesBackends(t *testing.T) {
+	api, srv := setup(t)
+	api.apps["b1"] = map[string]any{"id": "b1", "project_id": "p1", "name": "worker", "status": "error", "source_type": "upload", "app_type": "backend"}
+	s, _ := connect(t, srv.URL, goodKey)
+	defer s.Close()
+	files := []any{map[string]any{"path": "main.go", "content": "package main"}}
+	_, text, isErr := call(t, s, "deploy_files", map[string]any{"app_id": "b1", "files": files})
+	if !isErr || !strings.Contains(text, "backend") || len(api.uploads) != 0 {
+		t.Fatalf("backend app must be refused before upload: %s", text)
+	}
+	_, text, isErr = call(t, s, "deploy_files", map[string]any{"project_id": "p1", "name": "site", "files": files})
+	if isErr {
+		t.Fatal(text)
+	}
+	if api.lastCreate["app_type"] != "frontend" {
+		t.Fatalf("a new file-deployed app must be a site, got %v", api.lastCreate["app_type"])
 	}
 }

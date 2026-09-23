@@ -52,7 +52,7 @@ func New(apiBase string) *Tools {
 const Instructions = `TatNet is a Russian cloud platform. These tools manage web apps on TatNet Apps Platform (like Vercel/Netlify).
 
 Typical flows:
-- Publish code you wrote in the conversation: whoami (pick a project) -> deploy_files -> get_build with wait_seconds until finished -> tell the user the URL.
+- Publish a website you wrote in the conversation (static or SSR): whoami (pick a project) -> deploy_files -> get_build with wait_seconds until finished -> tell the user the URL. Backend services cannot be deployed from files yet: they need a git repository or a Docker image.
 - Deploy from a git repository or a Docker image: create_app -> deploy_app -> get_build.
 - A failed build: get_build shows the error and the log tail; get_build_logs for more.
 
