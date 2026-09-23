@@ -242,12 +242,10 @@ type DeployFilesIn struct {
 	AppID           string      `json:"app_id,omitempty" jsonschema:"redeploy into this existing app (it must have been created by deploy_files)"`
 	Name            string      `json:"name,omitempty" jsonschema:"app name for a new app; an existing file-deployed app with this name in the project is reused"`
 	Files           []pack.File `json:"files" jsonschema:"the complete project: every file the build needs (package.json, sources, assets). Environment files (.env) are skipped: use set_env"`
-	AppType         string      `json:"app_type,omitempty" jsonschema:"new app only: frontend (default) or backend"`
 	Framework       string      `json:"framework,omitempty" jsonschema:"new app only: override framework auto-detection"`
 	BuildCommand    string      `json:"build_command,omitempty" jsonschema:"new app only"`
 	InstallCommand  string      `json:"install_command,omitempty" jsonschema:"new app only"`
 	OutputDirectory string      `json:"output_directory,omitempty" jsonschema:"new app only"`
-	StartCommand    string      `json:"start_command,omitempty" jsonschema:"new app only, backend: command that starts the server"`
 }
 
 type DeployOut struct {
@@ -389,9 +387,10 @@ func (t *Tools) registerApps(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name: "deploy_files",
-		Description: "Publish a project from files: pack them, upload and start a build. Creates the app on first use (or reuses the file-deployed app with the same name), " +
-			"so calling it again with the same project_id and name redeploys. Send the COMPLETE project every time: files not sent are not in the new version. " +
-			"Suits projects written in the conversation (up to 20 MiB, 2000 files); larger ones deploy from git.",
+		Description: "Publish a WEBSITE from files (static site or SSR framework such as Next.js, Vite, Astro): pack them, upload and start a build. " +
+			"Creates the app on first use (or reuses the file-deployed app with the same name), so calling it again with the same project_id and name redeploys. " +
+			"Send the COMPLETE project every time: files not sent are not in the new version. Up to 20 MiB, 2000 files. " +
+			"Long-running backend services (APIs, bots, workers) cannot be deployed from files yet: push them to a git repository or a Docker image and use create_app.",
 		Annotations: additive("Deploy files", false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeployFilesIn) (*mcp.CallToolResult, DeployOut, error) {
 		var out DeployOut
@@ -485,6 +484,9 @@ func (t *Tools) resolveUploadApp(ctx context.Context, c *tatnet.ClientWithRespon
 			// Залить папку в git-апп молча нельзя: следующий пуш перетёр бы её.
 			return a, false, fmt.Errorf("app %q deploys from %s, not from files; use deploy_app, or deploy_files with a new name", a.Name, st)
 		}
+		if err := backendFromFiles(a); err != nil {
+			return a, false, err
+		}
 		return a, false, nil
 	}
 	if in.ProjectID == "" || in.Name == "" {
@@ -498,16 +500,31 @@ func (t *Tools) resolveUploadApp(ctx context.Context, c *tatnet.ClientWithRespon
 		if st := orDefault(val(existing.SourceType), "git"); st != "upload" {
 			return *existing, false, fmt.Errorf("app %q already exists and deploys from %s; choose another name", existing.Name, st)
 		}
+		if err := backendFromFiles(*existing); err != nil {
+			return *existing, false, err
+		}
 		return *existing, false, nil
 	}
 	r, err := c.AppsCreateAppWithResponse(ctx, in.ProjectID, tatnet.V1AppCreate{
 		Name: in.Name, SourceType: ptr("upload"),
-		AppType: opt(in.AppType), Framework: opt(in.Framework),
+		// Только сайт: платформа пока не собирает бэкенд из папки, и апп
+		// другого типа молча упал бы на первой же сборке.
+		AppType: ptr("frontend"), Framework: opt(in.Framework),
 		BuildCommand: opt(in.BuildCommand), InstallCommand: opt(in.InstallCommand),
-		OutputDirectory: opt(in.OutputDirectory), StartCommand: opt(in.StartCommand),
+		OutputDirectory: opt(in.OutputDirectory),
 	})
 	if err := check("create app", r, err); err != nil {
 		return tatnet.V1App{}, false, err
 	}
 	return *r.JSON201, true, nil
+}
+
+// backendFromFiles — отказ ДО загрузки: платформа не собирает бэкенд из папки
+// («Deploying from a folder is not supported for backend apps yet»), и без
+// этой проверки модель узнала бы об этом только упавшей сборкой.
+func backendFromFiles(a tatnet.V1App) error {
+	if val(a.AppType) == "backend" {
+		return fmt.Errorf("app %q is a backend service, and backends cannot be deployed from files yet; push the code to a git repository (or a Docker image) and use create_app + deploy_app", a.Name)
+	}
+	return nil
 }
