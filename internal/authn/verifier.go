@@ -85,9 +85,9 @@ type Config struct {
 	// OAuth выключен, принимаются только ключи.
 	Issuer  string
 	JWKSURL string
-	// Resource — адрес этого сервера (`https://mcp.tatnet.ru/mcp`): токен обязан
-	// быть выдан для него.
-	Resource string
+	// Resources — адрес ресурса по имени сервера (host → `https://host/mcp`):
+	// токен обязан быть выдан для того имени, на которое пришёл запрос.
+	Resources map[string]string
 	// InternalSecret — служебный канал к /v1 для подключений.
 	InternalSecret string
 }
@@ -124,8 +124,14 @@ func invalid(format string, a ...any) error {
 }
 
 // Verify — TokenVerifier для auth.RequireBearerToken.
-func (v *Verifier) Verify(ctx context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
-	h := sha256.Sum256([]byte(token))
+func (v *Verifier) Verify(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
+	resource := ""
+	if r != nil {
+		resource = v.cfg.Resources[strings.ToLower(r.Host)]
+	}
+	// Имя — часть ключа кеша: токен, проверенный для одного имени, не должен
+	// из кеша пройти на другое мимо проверки аудитории.
+	h := sha256.Sum256([]byte(resource + "\x00" + token))
 	v.mu.Lock()
 	e, ok := v.cache[h]
 	v.mu.Unlock()
@@ -139,7 +145,7 @@ func (v *Verifier) Verify(ctx context.Context, token string, _ *http.Request) (*
 	case strings.HasPrefix(token, KeyPrefix):
 		p = Principal{APIKey: token}
 	case v.keys != nil && strings.Count(token, ".") == 2:
-		grant, exp, err := v.parseJWT(ctx, token)
+		grant, exp, err := v.parseJWT(ctx, token, resource)
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +191,7 @@ func (v *Verifier) Verify(ctx context.Context, token string, _ *http.Request) (*
 }
 
 // parseJWT проверяет токен Hydra и достаёт из него id подключения.
-func (v *Verifier) parseJWT(ctx context.Context, token string) (string, time.Time, error) {
+func (v *Verifier) parseJWT(ctx context.Context, token, resource string) (string, time.Time, error) {
 	var claims struct {
 		jwt.RegisteredClaims
 		Ext map[string]any `json:"ext"`
@@ -217,8 +223,8 @@ func (v *Verifier) parseJWT(ctx context.Context, token string) (string, time.Tim
 	// Аудиторию ставит api на согласии; свою `audience` клиент при
 	// регистрации может прописать какую угодно, поэтому одна она ничего не
 	// доказывает — но токен, выданный для ДРУГОГО ресурса, здесь не годится.
-	if !slices.Contains(claims.Audience, v.cfg.Resource) {
-		return "", time.Time{}, invalid("token was not issued for %s", v.cfg.Resource)
+	if resource == "" || !slices.Contains(claims.Audience, resource) {
+		return "", time.Time{}, invalid("token was not issued for %s", orNone(resource))
 	}
 	// Доверие держится на этом поле: его кладёт только экран согласия TatNet.
 	grant, _ := claims.Ext[GrantClaim].(string)

@@ -72,7 +72,7 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 
 	verifier := authn.NewVerifier(authn.Config{
 		APIBase: cfg.APIBaseURL, Issuer: cfg.OIDCIssuer, JWKSURL: cfg.OIDCJWKSURL,
-		Resource: cfg.Resource(), InternalSecret: cfg.InternalSecret,
+		Resources: resources(cfg), InternalSecret: cfg.InternalSecret,
 	}, &http.Client{Timeout: 10 * time.Second})
 	counted := func(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
 		ti, err := verifier.Verify(ctx, token, r)
@@ -104,27 +104,48 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 	// MCP находит сервер авторизации, регистрируется там сам (DCR) и ведёт
 	// человека на вход и экран согласия. Без OAuth ссылки нет — пустой список
 	// серверов обещал бы вход, которого не существует.
-	opts := &auth.RequireBearerTokenOptions{
-		// Ключи /v1 бывают бессрочными — срок токена здесь не обязателен.
-		AllowMissingExpiration: true,
-	}
+	// На каждом имени сервер говорит от его лица: своя ссылка на метаданные в
+	// 401, свои метаданные с адресом ресурса этого имени.
 	metadataPath := "/.well-known/oauth-protected-resource/mcp"
-	if cfg.OIDCIssuer != "" {
-		opts.ResourceMetadataURL = cfg.PublicURL + metadataPath
+	byHost := map[string]http.Handler{}
+	metaByHost := map[string]map[string]any{}
+	for _, pub := range cfg.PublicURLs() {
+		host := publicHost(pub)
+		opts := &auth.RequireBearerTokenOptions{
+			// Ключи /v1 бывают бессрочными — срок токена здесь не обязателен.
+			AllowMissingExpiration: true,
+		}
+		if cfg.OIDCIssuer != "" {
+			opts.ResourceMetadataURL = pub + metadataPath
+			metaByHost[host] = map[string]any{
+				"resource":                 pub + "/mcp",
+				"authorization_servers":    []string{cfg.OIDCIssuer},
+				"scopes_supported":         []string{"openid", "offline_access"},
+				"bearer_methods_supported": []string{"header"},
+				"resource_name":            "TatNet",
+			}
+		}
+		byHost[host] = auth.RequireBearerToken(counted, opts)(mcpHandler)
 	}
-	protected := auth.RequireBearerToken(counted, opts)(mcpHandler)
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", requireHost(publicHost(cfg.PublicURL), protected))
-	if cfg.OIDCIssuer != "" {
-		meta := map[string]any{
-			"resource":                 cfg.Resource(),
-			"authorization_servers":    []string{cfg.OIDCIssuer},
-			"scopes_supported":         []string{"openid", "offline_access"},
-			"bearer_methods_supported": []string{"header"},
-			"resource_name":            "TatNet",
+	// Чужой Host — отказ до проверки токена: отвечать 401 со ссылкой на наши
+	// метаданные незачем.
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		h, ok := byHost[strings.ToLower(r.Host)]
+		if !ok {
+			http.Error(w, "unknown host", http.StatusMisdirectedRequest)
+			return
 		}
-		serveMeta := func(w http.ResponseWriter, _ *http.Request) {
+		h.ServeHTTP(w, r)
+	})
+	if cfg.OIDCIssuer != "" {
+		serveMeta := func(w http.ResponseWriter, r *http.Request) {
+			meta, ok := metaByHost[strings.ToLower(r.Host)]
+			if !ok {
+				http.Error(w, "unknown host", http.StatusMisdirectedRequest)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			_ = json.NewEncoder(w).Encode(meta)
@@ -150,15 +171,11 @@ func publicHost(publicURL string) string {
 	return strings.ToLower(u.Host)
 }
 
-// requireHost пропускает только запросы на публичный адрес сервера. Отказ —
-// до проверки токена: чужому Host отвечать 401 со ссылкой на наши метаданные
-// незачем.
-func requireHost(host string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if host != "" && !strings.EqualFold(r.Host, host) {
-			http.Error(w, "unknown host", http.StatusMisdirectedRequest)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// resources — адрес ресурса по имени сервера.
+func resources(cfg config.Config) map[string]string {
+	m := map[string]string{}
+	for _, pub := range cfg.PublicURLs() {
+		m[publicHost(pub)] = pub + "/mcp"
+	}
+	return m
 }

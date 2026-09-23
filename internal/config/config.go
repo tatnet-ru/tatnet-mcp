@@ -14,10 +14,14 @@ type Config struct {
 	// APIBaseURL — публичный /v1. MCP ходит туда ровно как CLI и SDK: своей
 	// бизнес-логики, своей БД и своих прав у него нет.
 	APIBaseURL string
-	// PublicURL — внешний адрес самого сервера (https://mcp.tatnet.ru). Нужен
-	// для метаданных защищённого ресурса (RFC 9728), по которым клиент MCP
-	// находит, где брать токен.
+	// PublicURL — ОСНОВНОЙ внешний адрес сервера (https://mcp.tatnet.cloud).
+	// Нужен для метаданных защищённого ресурса (RFC 9728), по которым клиент
+	// MCP находит, где брать токен.
 	PublicURL string
+	// ExtraPublicURLs — дополнительные имена, на которых сервер тоже отвечает
+	// (переходное https://mcp.tatnet.ru). На каждом имени сервер говорит от
+	// его лица: токен клиента привязан к адресу, по которому тот подключался.
+	ExtraPublicURLs []string
 	// MetricsToken закрывает /metrics: апп торчит в интернет, а метрики — нет.
 	MetricsToken string
 	// OIDCIssuer — сервер авторизации (Hydra), выдающий токены клиентам MCP.
@@ -32,17 +36,25 @@ type Config struct {
 	InternalSecret string
 }
 
-// Resource — адрес MCP-ресурса, для которого выдаются токены (RFC 8707/9728).
+// Resource — адрес MCP-ресурса основного имени (RFC 8707/9728).
 func (c Config) Resource() string { return c.PublicURL + "/mcp" }
+
+// PublicURLs — все имена сервера, основное первым.
+func (c Config) PublicURLs() []string { return append([]string{c.PublicURL}, c.ExtraPublicURLs...) }
 
 func Load() (Config, error) {
 	c := Config{
 		Listen:         listenAddr(),
 		APIBaseURL:     strings.TrimRight(env("API_BASE_URL", "https://api.tatnet.ru/v1"), "/"),
-		PublicURL:      strings.TrimRight(env("PUBLIC_URL", "https://mcp.tatnet.ru"), "/"),
+		PublicURL:      strings.TrimRight(env("PUBLIC_URL", "https://mcp.tatnet.cloud"), "/"),
 		MetricsToken:   os.Getenv("METRICS_TOKEN"),
 		OIDCIssuer:     strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
 		InternalSecret: strings.TrimSpace(os.Getenv("MCP_INTERNAL_SECRET")),
+	}
+	for _, u := range strings.Split(os.Getenv("EXTRA_PUBLIC_URLS"), ",") {
+		if u = strings.TrimRight(strings.TrimSpace(u), "/"); u != "" {
+			c.ExtraPublicURLs = append(c.ExtraPublicURLs, u)
+		}
 	}
 	c.OIDCJWKSURL = env("OIDC_JWKS_URL", c.OIDCIssuer+"/.well-known/jwks.json")
 	if c.OIDCIssuer != "" && c.InternalSecret == "" {
@@ -50,10 +62,10 @@ func Load() (Config, error) {
 		// «от имени подключения» нечем: вход бы работал, а каждый вызов — нет.
 		return c, fmt.Errorf("OIDC_ISSUER задан, а MCP_INTERNAL_SECRET нет")
 	}
-	for name, v := range map[string]string{"API_BASE_URL": c.APIBaseURL, "PUBLIC_URL": c.PublicURL} {
+	for _, v := range append([]string{c.APIBaseURL}, c.PublicURLs()...) {
 		u, err := url.Parse(v)
 		if err != nil || u.Scheme == "" || u.Host == "" {
-			return c, fmt.Errorf("%s: не абсолютный URL: %q", name, v)
+			return c, fmt.Errorf("не абсолютный URL: %q", v)
 		}
 	}
 	return c, nil
