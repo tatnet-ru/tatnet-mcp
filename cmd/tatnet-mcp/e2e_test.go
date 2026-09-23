@@ -207,6 +207,10 @@ type bearer struct{ key string }
 
 func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
+	// Как в проде: запрос приходит на 127.0.0.1 (прокси платформы), а Host —
+	// публичный адрес сервера. Без этого тесты не видели защиты SDK от DNS
+	// rebinding, которая отвергала каждый запрос на Apps Platform.
+	r.Host = "mcp.test"
 	if b.key != "" {
 		r.Header.Set("Authorization", "Bearer "+b.key)
 	}
@@ -473,5 +477,20 @@ func TestDeployFilesCreatesOnlySitesAndRefusesBackends(t *testing.T) {
 	}
 	if api.lastCreate["app_type"] != "frontend" {
 		t.Fatalf("a new file-deployed app must be a site, got %v", api.lastCreate["app_type"])
+	}
+}
+
+func TestForeignHostIsRefused(t *testing.T) {
+	_, srv := setup(t)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/mcp", strings.NewReader(`{}`))
+	req.Host = "evil.example"
+	req.Header.Set("Authorization", "Bearer "+goodKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMisdirectedRequest {
+		t.Fatalf("foreign Host must be refused, got %d", resp.StatusCode)
 	}
 }

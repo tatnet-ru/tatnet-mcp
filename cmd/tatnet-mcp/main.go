@@ -12,6 +12,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -91,8 +92,14 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 		}
 		return ti, err
 	}
+	// Защита SDK от DNS rebinding рассчитана на ЛОКАЛЬНЫЙ сервер на машине
+	// человека: запрос, пришедший на 127.0.0.1 с чужим Host, она отвергает.
+	// На Apps Platform так приходит КАЖДЫЙ запрос — гостевой агент Firecracker
+	// проксирует в приложение через 127.0.0.1, — и сервер отвечал 403 «invalid
+	// Host header» всем клиентам (живой отказ Claude Code 23.09). Вместо неё —
+	// своя проверка: Host обязан быть публичным адресом сервера.
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{Stateless: true, Logger: log})
+		&mcp.StreamableHTTPOptions{Stateless: true, Logger: log, DisableLocalhostProtection: true})
 	// Метаданные защищённого ресурса (RFC 9728): по ссылке из 401 любой клиент
 	// MCP находит сервер авторизации, регистрируется там сам (DCR) и ведёт
 	// человека на вход и экран согласия. Без OAuth ссылки нет — пустой список
@@ -108,7 +115,7 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 	protected := auth.RequireBearerToken(counted, opts)(mcpHandler)
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", protected)
+	mux.Handle("/mcp", requireHost(publicHost(cfg.PublicURL), protected))
 	if cfg.OIDCIssuer != "" {
 		meta := map[string]any{
 			"resource":                 cfg.Resource(),
@@ -133,4 +140,25 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.Handle("GET /metrics", metrics.Handler(cfg.MetricsToken))
 	return mux
+}
+
+func publicHost(publicURL string) string {
+	u, err := url.Parse(publicURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Host)
+}
+
+// requireHost пропускает только запросы на публичный адрес сервера. Отказ —
+// до проверки токена: чужому Host отвечать 401 со ссылкой на наши метаданные
+// незачем.
+func requireHost(host string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if host != "" && !strings.EqualFold(r.Host, host) {
+			http.Error(w, "unknown host", http.StatusMisdirectedRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
