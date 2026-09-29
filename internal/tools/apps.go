@@ -263,6 +263,7 @@ type DeployOut struct {
 type DeployAppIn struct {
 	AppID     string `json:"app_id"`
 	CommitSHA string `json:"commit_sha,omitempty" jsonschema:"git: build this commit instead of the branch head"`
+	Image     string `json:"image,omitempty" jsonschema:"Docker-image apps only: switch the app to this image (e.g. ghcr.io/org/app:<sha>) and build it. The app keeps the new image for later deploys"`
 }
 
 const nextWait = "Call get_build with this build_id and wait_seconds=45, repeating until finished is true; then report the URL and deploy_state."
@@ -422,8 +423,9 @@ func (t *Tools) registerApps(s *mcp.Server) {
 	})
 
 	add(s, &mcp.Tool{
-		Name:        "deploy_app",
-		Description: "Start a new build and deploy of a git or Docker-image app (the latest commit of its branch, or commit_sha). For file-deployed apps use deploy_files.",
+		Name: "deploy_app",
+		Description: "Start a new build and deploy of a git or Docker-image app (the latest commit of its branch, or commit_sha). " +
+			"For a Docker-image app, pass image to roll out a new image: the app is switched to it first, then built. For file-deployed apps use deploy_files.",
 		Annotations: additive("Deploy app", false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeployAppIn) (*mcp.CallToolResult, DeployOut, error) {
 		var out DeployOut
@@ -437,6 +439,17 @@ func (t *Tools) registerApps(s *mcp.Server) {
 		}
 		if val(a.SourceType) == "upload" {
 			return nil, out, fmt.Errorf("app %q deploys from files: call deploy_files with app_id and the complete project", a.Name)
+		}
+		if img := strings.TrimSpace(in.Image); img != "" {
+			// Отказ по типу источника отдаёт api (422), но сказать его здесь
+			// дешевле и понятнее, чем пересказывать чужой текст.
+			if val(a.SourceType) != "docker_image" {
+				return nil, out, fmt.Errorf("app %q is built from %s, not from a Docker image: image applies only to Docker-image apps", a.Name, orDefault(val(a.SourceType), "git"))
+			}
+			u, err := c.AppsUpdateAppByIdWithResponse(ctx, a.Id, tatnet.V1AppUpdate{DockerImage: ptr(img)})
+			if err := check("set image", u, err); err != nil {
+				return nil, out, err
+			}
 		}
 		r, err := c.AppsDeployAppByIdWithResponse(ctx, a.Id, tatnet.V1DeployRequest{CommitSha: opt(in.CommitSHA)})
 		if err := check("deploy app", r, err); err != nil {

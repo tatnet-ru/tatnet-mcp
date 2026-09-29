@@ -42,6 +42,7 @@ type fakeAPI struct {
 	final   string
 
 	lastCreate      map[string]any
+	lastPatch       map[string]any
 	grantCalls      atomic.Int32
 	grantRevoked    atomic.Bool
 	grantLeakedAuth atomic.Bool
@@ -152,6 +153,15 @@ func (f *fakeAPI) appRoutes(w http.ResponseWriter, r *http.Request, parts []stri
 		return b
 	}
 	switch {
+	case len(parts) == 2 && r.Method == "PATCH":
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.lastPatch = body
+		if img, ok := body["docker_image"].(string); ok {
+			a["docker_image"] = img
+			a["repo_full_name"] = img
+		}
+		js(200, a)
 	case len(parts) == 2:
 		js(200, a)
 	case parts[2] == "deployments" && r.Method == "POST":
@@ -592,5 +602,32 @@ func TestToolAnnotationsAreExplicitOnTheWire(t *testing.T) {
 		if ro, _ := tool.Annotations["readOnlyHint"].(bool); ro && tool.Annotations["destructiveHint"] != false {
 			t.Errorf("%s: read-only tool must say destructiveHint=false", tool.Name)
 		}
+	}
+}
+
+// image у deploy_app: сначала PATCH docker_image, потом сборка — одним
+// вызовом, как «выкати новый образ». У git-аппа — отказ без обращения к api.
+func TestDeployAppWithImage(t *testing.T) {
+	api, srv := setup(t)
+	api.apps["d1"] = map[string]any{"id": "d1", "project_id": "p1", "name": "svc", "status": "active", "source_type": "docker_image", "docker_image": "ghcr.io/o/svc:old"}
+	api.apps["g1"] = map[string]any{"id": "g1", "project_id": "p1", "name": "site", "status": "active", "source_type": "git"}
+	s, _ := connect(t, srv.URL, goodKey)
+	defer s.Close()
+
+	out, text, isErr := call(t, s, "deploy_app", map[string]any{"app_id": "d1", "image": "ghcr.io/o/svc:new"})
+	if isErr {
+		t.Fatalf("deploy_app: %s", text)
+	}
+	if api.lastPatch["docker_image"] != "ghcr.io/o/svc:new" || api.apps["d1"]["docker_image"] != "ghcr.io/o/svc:new" {
+		t.Fatalf("image not switched: patch=%v app=%v", api.lastPatch, api.apps["d1"])
+	}
+	if out["build_id"] == "" || len(api.builds["d1"]) != 1 {
+		t.Fatalf("no build started: %v", out)
+	}
+
+	api.lastPatch = nil
+	_, text, isErr = call(t, s, "deploy_app", map[string]any{"app_id": "g1", "image": "ghcr.io/o/x:1"})
+	if !isErr || !strings.Contains(text, "not from a Docker image") || api.lastPatch != nil || len(api.builds["g1"]) != 0 {
+		t.Fatalf("git app must refuse image before any call: %s", text)
 	}
 }
