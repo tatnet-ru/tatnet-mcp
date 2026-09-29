@@ -96,3 +96,38 @@ go build ./... && go test ./...
 SDK против сервера, а сервер — против поддельного `/v1` с состоянием в памяти,
 и проверяет последствия вызовов: что ушло в архив, сколько аппов создано,
 что попало в ответ модели.
+
+## Каталоги
+
+Сервер один; каталогов, из которых о нём узнают клиенты, три, и в каждый он
+подаётся отдельно.
+
+| Каталог | Что нужно | Статус |
+|---|---|---|
+| [Официальный реестр MCP](https://registry.modelcontextprotocol.io) | `server.json` в корне + владение доменом `tatnet.cloud` | карточка готова |
+| Каталог коннекторов Claude (`claude.ai/directory/manage`) | форма, тестовый аккаунт, документация, политика конфиденциальности | — |
+| Плагины ChatGPT (`platform.openai.com/plugins`) | верификация издателя, файл `/.well-known/openai-apps-challenge`, 5+3 тестовых сценария | — |
+
+**Реестр.** Пространство имён `cloud.tatnet/*` подтверждается TXT-записью на
+АПЕКСЕ `tatnet.cloud` (не под селектором вроде `_mcp.`), адрес сервера держим
+на том же домене (тест `TestServerJSONFitsTheRegistry`; реестр этого не
+требует, это наше правило). Ключ Ed25519 — только OpenSSL 3 (системный
+`openssl` macOS — LibreSSL, Ed25519 не умеет):
+
+```
+O=/opt/homebrew/opt/openssl@3/bin/openssl
+$O genpkey -algorithm Ed25519 -out key.pem          # хранить как секрет, не в репозитории
+echo "tatnet.cloud. IN TXT \"v=MCPv1; k=ed25519; p=$($O pkey -in key.pem -pubout -outform DER | tail -c 32 | base64)\""
+# ↑ эту запись — в зону tatnet.cloud, дождаться распространения
+mcp-publisher login dns --domain tatnet.cloud \
+  --private-key "$($O pkey -in key.pem -noout -text | grep -A3 priv: | tail -n +2 | tr -d ' :\n')"
+mcp-publisher publish
+```
+
+⚠ Каждая публикация требует НОВОЙ `version` в `server.json`: реестр
+отвергает повтор уже опубликованной версии.
+
+**Аннотации.** Оба каталога читают `title`, `readOnlyHint`,
+`destructiveHint`, `openWorldHint` с провода, а ChatGPT отклоняет инструмент,
+у которого флаг не указан явно. Тест `TestToolAnnotationsAreExplicitOnTheWire`
+проверяет сырой `tools/list`.
