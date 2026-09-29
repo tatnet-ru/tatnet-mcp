@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -629,5 +630,42 @@ func TestDeployAppWithImage(t *testing.T) {
 	_, text, isErr = call(t, s, "deploy_app", map[string]any{"app_id": "g1", "image": "ghcr.io/o/x:1"})
 	if !isErr || !strings.Contains(text, "not from a Docker image") || api.lastPatch != nil || len(api.builds["g1"]) != 0 {
 		t.Fatalf("git app must refuse image before any call: %s", text)
+	}
+}
+
+// Каталог коннекторов Claude требует: описания инструментов не указывают модели,
+// какие ДРУГИЕ инструменты звать и что делать (Compliance, п. 5). Порядок
+// вызовов живёт в общих Instructions сервера, а определение инструмента только
+// описывает его самого — описание, входная и выходная схемы.
+func TestToolDefinitionsDoNotReferToOtherTools(t *testing.T) {
+	_, srv := setup(t)
+	s, err := connect(t, srv.URL, goodKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	res, err := s.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tool := range res.Tools {
+		names = append(names, tool.Name)
+	}
+	for _, tool := range res.Tools {
+		in, _ := json.Marshal(tool.InputSchema)
+		out, _ := json.Marshal(tool.OutputSchema)
+		text := tool.Description + " " + string(in) + " " + string(out)
+		for _, other := range names {
+			if other == tool.Name {
+				continue
+			}
+			if regexp.MustCompile(`\b` + other + `\b`).MatchString(text) {
+				t.Errorf("%s: definition mentions another tool %q", tool.Name, other)
+			}
+		}
+		if regexp.MustCompile(`(?i)\bcall (again|first|next)\b`).MatchString(text) {
+			t.Errorf("%s: definition tells the model when to call", tool.Name)
+		}
 	}
 }

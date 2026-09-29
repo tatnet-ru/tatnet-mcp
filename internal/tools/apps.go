@@ -23,8 +23,8 @@ type AppView struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	ProjectID      string `json:"project_id"`
-	URL            string `json:"url,omitempty" jsonschema:"public address of the app (only in get_app and deploy results)"`
-	SourceType     string `json:"source_type" jsonschema:"git | docker_image | upload (files deployed with deploy_files)"`
+	URL            string `json:"url,omitempty" jsonschema:"public address of the app (present when an app is read or deployed)"`
+	SourceType     string `json:"source_type" jsonschema:"git | docker_image | upload (deployed from files)"`
 	AppType        string `json:"app_type,omitempty" jsonschema:"frontend | backend"`
 	BuildStatus    string `json:"build_status" jsonschema:"status of the last build"`
 	DeployState    string `json:"deploy_state,omitempty" jsonschema:"whether the built artifact actually runs: live | rolling | failing | never_booted | stale_serving | unverified | build_failed"`
@@ -82,7 +82,7 @@ const listCap = 1000
 func (t *Tools) registerAccount(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name:        "whoami",
-		Description: "Show the TatNet account this connection acts as and the projects it can use. Call first to get a project_id.",
+		Description: "Show the TatNet account this connection acts as and the projects it can use, with their ids.",
 		Annotations: readOnly("Who am I"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ WhoamiIn) (*mcp.CallToolResult, WhoamiOut, error) {
 		var out WhoamiOut
@@ -215,7 +215,7 @@ func (t *Tools) appURL(ctx context.Context, c *tatnet.ClientWithResponses, appID
 type CreateAppIn struct {
 	ProjectID       string `json:"project_id"`
 	Name            string `json:"name" jsonschema:"app name: lowercase letters, digits and dashes; becomes part of the default URL"`
-	SourceType      string `json:"source_type" jsonschema:"git or docker_image. To publish files from the conversation use deploy_files instead"`
+	SourceType      string `json:"source_type" jsonschema:"git or docker_image"`
 	Repo            string `json:"repo,omitempty" jsonschema:"git: owner/name of a repository connected to TatNet"`
 	Branch          string `json:"branch,omitempty" jsonschema:"git: branch to deploy (default main)"`
 	GitProvider     string `json:"git_provider,omitempty" jsonschema:"git: github (default) | gitlab | gitea | gitverse | gitflic"`
@@ -239,9 +239,9 @@ type CreateAppOut struct {
 
 type DeployFilesIn struct {
 	ProjectID       string      `json:"project_id,omitempty" jsonschema:"project for a new app (required unless app_id is given)"`
-	AppID           string      `json:"app_id,omitempty" jsonschema:"redeploy into this existing app (it must have been created by deploy_files)"`
+	AppID           string      `json:"app_id,omitempty" jsonschema:"redeploy into this existing app; it must be an app deployed from files"`
 	Name            string      `json:"name,omitempty" jsonschema:"app name for a new app; an existing file-deployed app with this name in the project is reused"`
-	Files           []pack.File `json:"files" jsonschema:"the complete project: every file the build needs (package.json, sources, assets). Environment files (.env) are skipped: use set_env"`
+	Files           []pack.File `json:"files" jsonschema:"the complete project: every file the build needs (package.json, sources, assets). Environment files (.env) are skipped: their values belong in the app's environment variables"`
 	Framework       string      `json:"framework,omitempty" jsonschema:"new app only: override framework auto-detection"`
 	BuildCommand    string      `json:"build_command,omitempty" jsonschema:"new app only"`
 	InstallCommand  string      `json:"install_command,omitempty" jsonschema:"new app only"`
@@ -256,7 +256,7 @@ type DeployOut struct {
 	Status       string   `json:"status"`
 	URL          string   `json:"url,omitempty" jsonschema:"where the app will be served once the build is live"`
 	FilesPacked  int      `json:"files_packed,omitempty"`
-	SkippedFiles []string `json:"skipped_files,omitempty" jsonschema:"environment files left out on purpose; set their variables with set_env"`
+	SkippedFiles []string `json:"skipped_files,omitempty" jsonschema:"environment files left out on purpose; their values belong in the app's environment variables"`
 	Next         string   `json:"next"`
 }
 
@@ -326,9 +326,8 @@ func (t *Tools) registerApps(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name: "create_app",
-		Description: "Create an app that deploys from a git repository or a Docker image. " +
-			"Does not start a build: call deploy_app next. Idempotent by name: an existing app with the same name in the project is returned instead of a duplicate. " +
-			"To publish code written in the conversation, use deploy_files instead.",
+		Description: "Create an app that deploys from a git repository or a Docker image. Creating an app does not start a build. " +
+			"Idempotent by name: if an app with the same name exists in the project, that app is returned instead of a duplicate.",
 		Annotations: additive("Create app", true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CreateAppIn) (*mcp.CallToolResult, CreateAppOut, error) {
 		var out CreateAppOut
@@ -388,10 +387,10 @@ func (t *Tools) registerApps(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name: "deploy_files",
-		Description: "Publish a WEBSITE from files (static site or SSR framework such as Next.js, Vite, Astro): pack them, upload and start a build. " +
-			"Creates the app on first use (or reuses the file-deployed app with the same name), so calling it again with the same project_id and name redeploys. " +
-			"Send the COMPLETE project every time: files not sent are not in the new version. Up to 20 MiB, 2000 files. " +
-			"Long-running backend services (APIs, bots, workers) cannot be deployed from files yet: push them to a git repository or a Docker image and use create_app.",
+		Description: "Publish a website (static site or SSR framework such as Next.js, Vite, Astro) from files: packs them, uploads them and starts a build. " +
+			"Creates the app on first use; with the same project_id and name it redeploys that app. " +
+			"Each deploy replaces the whole project: files not included are not in the new version. Up to 20 MiB, 2000 files. " +
+			"Long-running backend services (APIs, bots, workers) cannot be deployed from files; they need a git repository or a Docker image.",
 		Annotations: additive("Deploy files", false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeployFilesIn) (*mcp.CallToolResult, DeployOut, error) {
 		var out DeployOut
@@ -424,8 +423,8 @@ func (t *Tools) registerApps(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name: "deploy_app",
-		Description: "Start a new build and deploy of a git or Docker-image app (the latest commit of its branch, or commit_sha). " +
-			"For a Docker-image app, pass image to roll out a new image: the app is switched to it first, then built. For file-deployed apps use deploy_files.",
+		Description: "Start a new build and deploy of a git or Docker-image app: the latest commit of its branch, or commit_sha. " +
+			"For a Docker-image app, image switches the app to that image before the build. Apps deployed from files are not built by this tool.",
 		Annotations: additive("Deploy app", false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DeployAppIn) (*mcp.CallToolResult, DeployOut, error) {
 		var out DeployOut

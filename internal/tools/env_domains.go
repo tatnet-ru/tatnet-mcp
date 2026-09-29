@@ -227,7 +227,7 @@ func (t *Tools) registerDomains(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name: "add_domain",
 		Description: "Attach a custom domain to an app. If the domain's DNS zone is managed by TatNet the record is created automatically; " +
-			"otherwise the user must create an A record to target_ip. HTTPS certificate is issued automatically once DNS resolves.",
+			"otherwise the domain needs an A record pointing to target_ip. The HTTPS certificate is issued automatically once DNS resolves.",
 		Annotations: additive("Add domain", true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in AddDomainIn) (*mcp.CallToolResult, AddDomainOut, error) {
 		var out AddDomainOut
