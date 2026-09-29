@@ -53,7 +53,9 @@ const Instructions = `TatNet is a Russian cloud platform. These tools manage web
 
 Typical flows:
 - Publish a website you wrote in the conversation (static or SSR): whoami (pick a project) -> deploy_files -> get_build with wait_seconds until finished -> tell the user the URL. Backend services cannot be deployed from files yet: they need a git repository or a Docker image.
-- Deploy from a git repository or a Docker image: create_app -> deploy_app -> get_build.
+- Deploy from a git repository or a Docker image: create_app -> deploy_app -> get_build. create_app does not build by itself; to roll out a new Docker image, call deploy_app with image.
+- Redeploy an app made from files: deploy_files again with the same project_id and name and the complete project. deploy_app does not build such apps.
+- Environment files (.env) are not uploaded: set their variables with set_env.
 - A failed build: get_build shows the error and the log tail; get_build_logs for more.
 - Money: get_balance shows what the account can spend right now. Check it when creating something paid fails for lack of funds; topping up happens in the TatNet dashboard.
 
