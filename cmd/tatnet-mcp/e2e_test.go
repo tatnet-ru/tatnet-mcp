@@ -26,15 +26,17 @@ const goodKey = "tn_live_good"
 // fakeAPI — поддельный /v1 ровно тех ручек, которые зовёт MCP. Состояние в
 // памяти, чтобы проверять ПОСЛЕДСТВИЯ вызовов, а не только ответы.
 type fakeAPI struct {
-	mu       sync.Mutex
-	apps     map[string]map[string]any
-	creates  int
-	uploads  [][]byte
-	builds   map[string][]map[string]any // app -> newest first
-	env      map[string][]map[string]any
-	scoped   bool
-	forbid   map[string]bool // путь → 403
-	buildSeq int
+	mu      sync.Mutex
+	apps    map[string]map[string]any
+	creates int
+	uploads [][]byte
+	builds  map[string][]map[string]any // app -> newest first
+	env     map[string][]map[string]any
+	scoped  bool
+	forbid  map[string]bool // путь → 403
+	// billingDown — /account/balance отвечает 503 billing_unavailable
+	billingDown bool
+	buildSeq    int
 	// сколько раз отдать «building», прежде чем сборка станет терминальной
 	pending int
 	final   string
@@ -97,6 +99,11 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		js(200, map[string]any{"account_id": "acc1", "key_id": "key1",
 			"policy": []any{map[string]any{"effect": "allow", "actions": []string{"*"}, "resources": []string{res}}}})
+	case r.URL.Path == "/account/balance" && f.billingDown:
+		js(503, map[string]any{"error": map[string]any{"code": "billing_unavailable", "message": "Не удалось проверить баланс, повторите попытку"}})
+	case r.URL.Path == "/account/balance":
+		js(200, map[string]any{"currency": "RUB", "balance": "0", "credits": "300",
+			"credits_unlocked": false, "available": "0", "real_topup_min": "100"})
 	case r.URL.Path == "/projects":
 		if f.scoped {
 			js(200, page(nil))
@@ -283,7 +290,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"whoami": "ro", "list_apps": "ro", "get_app": "ro", "get_build": "ro", "get_build_logs": "ro",
+		"whoami": "ro", "get_balance": "ro", "list_apps": "ro", "get_app": "ro", "get_build": "ro", "get_build_logs": "ro",
 		"list_builds": "ro", "list_env": "ro", "list_domains": "ro",
 		"create_app": "add", "deploy_files": "add", "deploy_app": "add", "set_env": "add", "add_domain": "add",
 		"delete_env": "destroy", "remove_domain": "destroy",
@@ -492,5 +499,49 @@ func TestForeignHostIsRefused(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMisdirectedRequest {
 		t.Fatalf("foreign Host must be refused, got %d", resp.StatusCode)
+	}
+}
+
+// Бонусы не открыты: модель должна увидеть, сколько пополнить, а не голый ноль.
+func TestBalanceExplainsLockedCredits(t *testing.T) {
+	_, srv := setup(t)
+	s, err := connect(t, srv.URL, goodKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	out, text, isErr := call(t, s, "get_balance", nil)
+	if isErr {
+		t.Fatalf("get_balance: %s", text)
+	}
+	if out["available"] != "0" || out["credits"] != "300" || out["credits_unlocked"] != false || out["real_topup_min"] != "100" {
+		t.Fatalf("unexpected balance: %v", out)
+	}
+}
+
+// 403 у баланса — не «расширьте ключ»: видеть деньги может только владелец.
+func TestBalanceForbiddenNamesTheOwner(t *testing.T) {
+	api, srv := setup(t)
+	api.forbid["/account/balance"] = true
+	s, _ := connect(t, srv.URL, goodKey)
+	defer s.Close()
+	_, text, isErr := call(t, s, "get_balance", nil)
+	if !isErr || !strings.Contains(text, "Only the account owner") || !strings.Contains(text, "whole account") {
+		t.Fatalf("403 must say who can see the balance: %s", text)
+	}
+}
+
+// Биллинг недоступен — «повторите», а не ноль на счету.
+func TestBalanceUnavailableIsNotZero(t *testing.T) {
+	api, srv := setup(t)
+	api.billingDown = true
+	s, _ := connect(t, srv.URL, goodKey)
+	defer s.Close()
+	out, text, isErr := call(t, s, "get_balance", nil)
+	if !isErr || !strings.Contains(text, "HTTP 503") || !strings.Contains(text, "retry later") {
+		t.Fatalf("503 must be a retryable refusal: %s", text)
+	}
+	if out != nil && out["available"] != nil {
+		t.Fatalf("no numbers on failure: %v", out)
 	}
 }
