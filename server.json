@@ -4,7 +4,7 @@
   "title": "TatNet",
   "description": "Deploy and manage web apps on TatNet, a Russian cloud: builds, logs, env, domains, balance",
   "version": "1.0.0",
-  "websiteUrl": "https://docs.tatnet.ru/mcp",
+  "websiteUrl": "https://docs.tatnet.ru/docs/mcp",
   "repository": {
     "url": "https://github.com/tatnet-ru/tatnet-mcp",
     "source": "github"
