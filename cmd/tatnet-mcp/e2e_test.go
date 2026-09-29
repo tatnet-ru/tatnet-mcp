@@ -545,3 +545,52 @@ func TestBalanceUnavailableIsNotZero(t *testing.T) {
 		t.Fatalf("no numbers on failure: %v", out)
 	}
 }
+
+// Каталоги Claude и ChatGPT читают аннотации с ПРОВОДА: у каждого инструмента
+// обязаны быть title и все три флага явно. Структура SDK отсутствие поля не
+// отличает от false, поэтому проверяем сырой JSON tools/list.
+func TestToolAnnotationsAreExplicitOnTheWire(t *testing.T) {
+	_, srv := setup(t)
+	post := func(body string) []byte {
+		req, _ := http.NewRequest("POST", srv.URL+"/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		resp, err := (&http.Client{Transport: bearer{goodKey}}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return b
+	}
+	post(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`)
+	raw := post(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+	var payload []byte
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		line = bytes.TrimPrefix(bytes.TrimSpace(line), []byte("data: "))
+		if bytes.HasPrefix(line, []byte("{")) {
+			payload = line
+		}
+	}
+	var msg struct {
+		Result struct {
+			Tools []struct {
+				Name        string         `json:"name"`
+				Annotations map[string]any `json:"annotations"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(payload, &msg); err != nil || len(msg.Result.Tools) == 0 {
+		t.Fatalf("tools/list: %v %s", err, raw)
+	}
+	for _, tool := range msg.Result.Tools {
+		for _, k := range []string{"title", "readOnlyHint", "destructiveHint", "openWorldHint"} {
+			if _, ok := tool.Annotations[k]; !ok {
+				t.Errorf("%s: annotation %s is not explicit", tool.Name, k)
+			}
+		}
+		if ro, _ := tool.Annotations["readOnlyHint"].(bool); ro && tool.Annotations["destructiveHint"] != false {
+			t.Errorf("%s: read-only tool must say destructiveHint=false", tool.Name)
+		}
+	}
+}

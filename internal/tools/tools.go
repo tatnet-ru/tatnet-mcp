@@ -88,8 +88,11 @@ func val[T any](p *T) T {
 	return *p
 }
 
+// Каталоги коннекторов требуют у каждого инструмента ЯВНЫЕ readOnlyHint,
+// destructiveHint и openWorldHint: у OpenAI отсутствующий флаг — отказ на
+// ревью, даже если по спецификации MCP он подразумевается из readOnlyHint.
 func readOnly(title string) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true, OpenWorldHint: ptr(false)}
+	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true, DestructiveHint: ptr(false), OpenWorldHint: ptr(false)}
 }
 
 func additive(title string, idempotent bool) *mcp.ToolAnnotations {
