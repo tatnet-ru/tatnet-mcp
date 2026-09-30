@@ -6,9 +6,17 @@
 // Claude Code, 2026-09-23) такой ответ отвергают: пустая строка — не URL,
 // null — не массив. Регистрация проходила, а клиент на ней падал.
 //
-// Прослойка ничего не решает сама: тело уходит в Hydra как есть, статус
-// возвращается как есть, из ответа вырезаются только пустые значения.
-// Безопасность регистрации (запрет metadata/skip_consent) остаётся за Hydra.
+// Прослойка решает ровно одно: список `audience` клиента. Hydra при ОБНОВЛЕНИИ
+// токена сверяет выданную аудиторию со списком клиента, а у самозарегистри-
+// рованного он пуст — вход проходил (аудиторию ставит api на согласии), а
+// через час refresh получал 400, и клиент просил войти заново (все клиенты
+// MCP с 2026-09-24, замер на Hydra v26.2.0). Поэтому список ставится здесь,
+// поверх присланного клиентом: чужую аудиторию себе клиент не пропишет. Токен
+// от этого не шире — аудиторию выдаёт согласие, список лишь разрешает её.
+//
+// В остальном тело уходит в Hydra как есть, статус возвращается как есть, из
+// ответа вырезаются только пустые значения. Безопасность регистрации (запрет
+// metadata/skip_consent) остаётся за Hydra.
 package dcr
 
 import (
@@ -23,7 +31,8 @@ import (
 // трубой для чего угодно.
 const maxBody = 64 << 10
 
-func Handler(upstream string, hc *http.Client) http.Handler {
+// audience — адреса ресурса MCP (по одному на публичное имя сервера).
+func Handler(upstream string, audience []string, hc *http.Client) http.Handler {
 	if hc == nil {
 		hc = &http.Client{Timeout: 15 * time.Second}
 	}
@@ -47,6 +56,7 @@ func Handler(upstream string, hc *http.Client) http.Handler {
 			writeErr(w, http.StatusBadRequest, "invalid_client_metadata", "registration request is too large or unreadable")
 			return
 		}
+		body = withAudience(body, audience)
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upstream, bytes.NewReader(body))
 		if err != nil {
 			writeErr(w, http.StatusBadGateway, "server_error", "registration is unavailable")
@@ -70,6 +80,28 @@ func Handler(upstream string, hc *http.Client) http.Handler {
 		w.WriteHeader(resp.StatusCode)
 		_, _ = w.Write(Clean(out))
 	})
+}
+
+// withAudience ставит `audience` в JSON-объект регистрации. Не объект —
+// возвращается как есть: такую регистрацию отвергнет Hydra.
+func withAudience(raw []byte, audience []string) []byte {
+	if len(audience) == 0 {
+		return raw
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return raw
+	}
+	a, err := json.Marshal(audience)
+	if err != nil {
+		return raw
+	}
+	m["audience"] = a
+	b, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // Clean убирает из JSON-объекта верхнего уровня поля с пустыми значениями:

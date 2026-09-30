@@ -156,7 +156,13 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 		mux.HandleFunc("GET /.well-known/oauth-protected-resource", serveMeta)
 		// Регистрация клиентов через прослойку: Hydra отдаёт пустые поля,
 		// которые строгие клиенты отвергают (см. internal/dcr).
-		mux.Handle("/oauth/register", dcr.Handler(cfg.OIDCIssuer+"/oauth2/register", nil))
+		// Список аудиторий клиента — все имена сервера: токен привязан к имени,
+		// по которому клиент подключался.
+		var resources []string
+		for _, pub := range cfg.PublicURLs() {
+			resources = append(resources, pub+"/mcp")
+		}
+		mux.Handle("/oauth/register", dcr.Handler(cfg.OIDCIssuer+"/oauth2/register", resources, nil))
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.Handle("GET /metrics", metrics.Handler(cfg.MetricsToken))
