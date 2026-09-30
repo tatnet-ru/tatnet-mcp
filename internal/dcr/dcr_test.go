@@ -23,7 +23,7 @@ func TestRegistrationIsForwardedAndEmptyFieldsDropped(t *testing.T) {
 		_, _ = w.Write([]byte(hydraReply))
 	}))
 	defer hydra.Close()
-	srv := httptest.NewServer(Handler(hydra.URL, nil))
+	srv := httptest.NewServer(Handler(hydra.URL, nil, nil))
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL, "application/json", strings.NewReader(`{"client_name":"x"}`))
@@ -56,7 +56,7 @@ func TestHydraErrorsPassThrough(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"invalid_client_metadata","error_description":"'metadata' cannot be set"}`))
 	}))
 	defer hydra.Close()
-	srv := httptest.NewServer(Handler(hydra.URL, nil))
+	srv := httptest.NewServer(Handler(hydra.URL, nil, nil))
 	defer srv.Close()
 	resp, _ := http.Post(srv.URL, "application/json", strings.NewReader(`{"metadata":{"first_party":true}}`))
 	b, _ := io.ReadAll(resp.Body)
@@ -66,7 +66,7 @@ func TestHydraErrorsPassThrough(t *testing.T) {
 }
 
 func TestUnreachableHydraIsNotARegistration(t *testing.T) {
-	srv := httptest.NewServer(Handler("http://127.0.0.1:1/unreachable", nil))
+	srv := httptest.NewServer(Handler("http://127.0.0.1:1/unreachable", nil, nil))
 	defer srv.Close()
 	resp, _ := http.Post(srv.URL, "application/json", strings.NewReader(`{}`))
 	if resp.StatusCode != http.StatusBadGateway {
@@ -75,10 +75,61 @@ func TestUnreachableHydraIsNotARegistration(t *testing.T) {
 }
 
 func TestOversizedBodyIsRefused(t *testing.T) {
-	srv := httptest.NewServer(Handler("http://127.0.0.1:1/never", nil))
+	srv := httptest.NewServer(Handler("http://127.0.0.1:1/never", nil, nil))
 	defer srv.Close()
 	resp, _ := http.Post(srv.URL, "application/json", strings.NewReader(strings.Repeat("x", maxBody+10)))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", resp.StatusCode)
+	}
+}
+
+// Без аудитории в списке клиента Hydra отвергает ОБНОВЛЕНИЕ токена (вход при
+// этом проходит): клиент MCP работал час и просил войти заново.
+func TestAudienceIsSetOverWhatTheClientSent(t *testing.T) {
+	var got map[string]any
+	hydra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(hydraReply))
+	}))
+	defer hydra.Close()
+	aud := []string{"https://mcp.example/mcp", "https://mcp2.example/mcp"}
+	srv := httptest.NewServer(Handler(hydra.URL, aud, nil))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL, "application/json",
+		strings.NewReader(`{"client_name":"x","audience":["https://api.example"],"redirect_uris":["http://127.0.0.1/cb"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	gotAud, _ := got["audience"].([]any)
+	if len(gotAud) != 2 || gotAud[0] != aud[0] || gotAud[1] != aud[1] {
+		t.Fatalf("audience must be exactly the server's resources, got %v", got["audience"])
+	}
+	if got["client_name"] != "x" || got["redirect_uris"] == nil {
+		t.Fatalf("other fields must reach Hydra unchanged: %v", got)
+	}
+}
+
+func TestNonObjectBodyIsForwardedAsIs(t *testing.T) {
+	var gotBody string
+	hydra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_client_metadata"}`))
+	}))
+	defer hydra.Close()
+	srv := httptest.NewServer(Handler(hydra.URL, []string{"https://mcp.example/mcp"}, nil))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL, "application/json", strings.NewReader(`["not an object"]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotBody != `["not an object"]` || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("non-object must pass through to Hydra's own rejection, got %q %d", gotBody, resp.StatusCode)
 	}
 }
