@@ -179,3 +179,16 @@ A missing, unknown, rolling or unverified deployment state remains pending;
 startup failures terminate with `succeeded=false` and diagnostic log lines.
 `finished` means waiting has ended, including failure. Never treat it alone
 as a successful deployment.
+
+## Каталог моделей ИИ
+
+`ai_models(kind="image" | "video")` читает публичный каталог
+`ai.tatnet.cloud`: модели, умения и клиентские цены. Инструмент не передаёт
+ключ управления облаком в шлюз инференса и не запускает генерацию.
+
+Платные MCP-операции требуют отдельного `tnai_live_…`, тогда как текущий
+OAuth/ключ MCP авторизует управление облаком. Без безопасного обмена на
+ключ инференса конкретного аккаунта генерацию через remote MCP не добавляем.
+Оставшийся шаг — такой обмен/делегирование с проверкой прав аккаунта;
+передавать секрет через аргументы модели или общий ключ сервера не следует.
+Для генерации сейчас используйте `tatnet ai` с собственным ключом инференса.

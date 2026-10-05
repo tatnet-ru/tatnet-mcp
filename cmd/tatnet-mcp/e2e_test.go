@@ -318,7 +318,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"whoami": "ro", "get_balance": "ro", "list_apps": "ro", "get_app": "ro", "get_build": "ro", "get_build_logs": "ro",
+		"ai_models": "ro", "whoami": "ro", "get_balance": "ro", "list_apps": "ro", "get_app": "ro", "get_build": "ro", "get_build_logs": "ro",
 		"list_builds": "ro", "list_env": "ro", "list_domains": "ro",
 		"create_app": "add", "deploy_files": "add", "deploy_app": "add", "set_env": "add", "add_domain": "add",
 		"delete_env": "destroy", "remove_domain": "destroy",
