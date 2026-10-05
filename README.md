@@ -126,7 +126,7 @@ SDK против сервера, а сервер — против поддель
 
 | Каталог | Что нужно | Статус |
 |---|---|---|
-| [Официальный реестр MCP](https://registry.modelcontextprotocol.io) | `server.json` в корне + владение доменом `tatnet.cloud` | карточка готова |
+| [Официальный реестр MCP](https://registry.modelcontextprotocol.io) | `server.json` в корне + владение доменом `tatnet.cloud` | опубликована версия `1.1.1` (2026-10-05) |
 | Каталог коннекторов Claude (`claude.ai/directory/manage`) | форма, тестовый аккаунт, документация, политика конфиденциальности | — |
 | Плагины ChatGPT (`platform.openai.com/plugins`) | верификация издателя, файл `/.well-known/openai-apps-challenge`, 5+3 тестовых сценария | — |
 
@@ -145,6 +145,10 @@ mcp-publisher login dns --domain tatnet.cloud \
   --private-key "$($O pkey -in key.pem -noout -text | grep -A3 priv: | tail -n +2 | tr -d ' :\n')"
 mcp-publisher publish
 ```
+
+Ключ текущей DNS-авторизации хранится локально в конфигурации издателя,
+вне этого репозитория. При повторном входе используйте существующий ключ;
+его содержимое не должно попадать в README или Git.
 
 ⚠ Каждая публикация требует НОВОЙ `version` в `server.json`: реестр
 отвергает повтор уже опубликованной версии.
