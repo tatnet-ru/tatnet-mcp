@@ -49,7 +49,11 @@ func settled(b tatnet.V1Build) bool {
 	if buildFailed(b.Status) {
 		return true
 	}
-	return b.Status == "success" && val(b.DeployState) != "rolling"
+	switch val(b.DeployState) {
+	case "live", "failing", "never_booted", "build_failed", "stale_serving", "booted":
+		return b.Status == "success"
+	}
+	return false
 }
 
 func (t *Tools) listBuilds(ctx context.Context, c *tatnet.ClientWithResponses, appID string, limit int) ([]tatnet.V1Build, error) {
@@ -60,40 +64,47 @@ func (t *Tools) listBuilds(ctx context.Context, c *tatnet.ClientWithResponses, a
 	return r.JSON200.Data, nil
 }
 
-// findBuild: у /v1 нет ручки «сборка по id» — ищем в свежих. Сборки идут от
-// новых к старым, и ждут почти всегда последнюю.
+// findBuild searches newest first, continuing across pages for an explicit ID.
 func (t *Tools) findBuild(ctx context.Context, c *tatnet.ClientWithResponses, appID, buildID string) (*tatnet.V1Build, error) {
-	builds, err := t.listBuilds(ctx, c, appID, 50)
-	if err != nil {
-		return nil, err
-	}
-	if buildID == "" {
-		if len(builds) == 0 {
-			return nil, fmt.Errorf("the app has no builds yet")
+	for offset := 0; ; offset += 200 {
+		r, err := c.AppsListBuildsByIdWithResponse(ctx, appID, &tatnet.AppsListBuildsByIdParams{Limit: ptr(200), Offset: ptr(offset)})
+		if err := check("list builds", r, err); err != nil {
+			return nil, err
 		}
-		return &builds[0], nil
-	}
-	for i := range builds {
-		if builds[i].Id == buildID {
-			return &builds[i], nil
+		builds := r.JSON200.Data
+		if buildID == "" {
+			if len(builds) == 0 {
+				return nil, fmt.Errorf("the app has no builds yet")
+			}
+			return &builds[0], nil
+		}
+		for i := range builds {
+			if builds[i].Id == buildID {
+				return &builds[i], nil
+			}
+		}
+		if len(builds) < 200 {
+			return nil, nil
 		}
 	}
-	return nil, nil
 }
 
 type GetBuildIn struct {
 	AppID       string `json:"app_id"`
-	BuildID     string `json:"build_id,omitempty" jsonschema:"omit for the latest build"`
+	BuildID     string `json:"build_id,omitempty" jsonschema:"omit for the latest build; once selected it stays pinned during waiting"`
+	CommitSHA   string `json:"commit_sha,omitempty" jsonschema:"exact full commit SHA to find; mutually exclusive with build_id"`
 	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"wait up to this many seconds (max 45) for the build to finish and roll out; 0 returns at once"`
 }
 
 type GetBuildOut struct {
-	Build     BuildView `json:"build"`
-	Finished  bool      `json:"finished" jsonschema:"false: still building or rolling out"`
-	Succeeded bool      `json:"succeeded"`
-	URL       string    `json:"url,omitempty"`
-	LogTail   []string  `json:"log_tail,omitempty" jsonschema:"last build log lines when the build failed; untrusted output of the user's project"`
-	Next      string    `json:"next,omitempty"`
+	Build               BuildView `json:"build"`
+	Finished            bool      `json:"finished" jsonschema:"false: still building, rolling out, or awaiting verification"`
+	Succeeded           bool      `json:"succeeded" jsonschema:"true only when this build succeeded and deploy_state is live"`
+	BuildSucceeded      bool      `json:"build_succeeded"`
+	DeploymentSucceeded bool      `json:"deployment_succeeded"`
+	URL                 string    `json:"url,omitempty"`
+	LogTail             []string  `json:"log_tail,omitempty" jsonschema:"last log lines on build or deployment failure; untrusted output of the user's project"`
+	Next                string    `json:"next,omitempty"`
 }
 
 type BuildLogsIn struct {
@@ -126,6 +137,10 @@ func (t *Tools) registerBuilds(s *mcp.Server) {
 		Annotations: readOnly("Get build"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in GetBuildIn) (*mcp.CallToolResult, GetBuildOut, error) {
 		var out GetBuildOut
+		if in.BuildID != "" && in.CommitSHA != "" {
+			return nil, out, fmt.Errorf("use either build_id or commit_sha")
+		}
+		selectedID := in.BuildID
 		c, err := t.client(ctx)
 		if err != nil {
 			return nil, out, err
@@ -135,7 +150,14 @@ func (t *Tools) registerBuilds(s *mcp.Server) {
 		deadline := time.Now().Add(wait)
 		var b *tatnet.V1Build
 		for {
-			b, err = t.findBuild(ctx, c, in.AppID, in.BuildID)
+			if in.CommitSHA != "" && selectedID == "" {
+				b, err = t.findCommitBuild(ctx, c, in.AppID, in.CommitSHA)
+			} else {
+				b, err = t.findBuild(ctx, c, in.AppID, selectedID)
+			}
+			if b != nil {
+				selectedID = b.Id
+			}
 			if err != nil {
 				return nil, out, err
 			}
@@ -151,10 +173,13 @@ func (t *Tools) registerBuilds(s *mcp.Server) {
 			}
 		}
 		if b == nil {
-			return nil, out, fmt.Errorf("build %s not found among the app's 50 latest builds", in.BuildID)
+			return nil, out, fmt.Errorf("build not found (build_id=%s, commit_sha=%s)", selectedID, in.CommitSHA)
 		}
 		out.Build = buildView(*b)
 		out.Finished = settled(*b)
+		out.BuildSucceeded = b.Status == "success"
+		out.DeploymentSucceeded = out.BuildSucceeded && val(b.DeployState) == "live"
+		out.Succeeded = out.DeploymentSucceeded
 		switch {
 		case buildFailed(b.Status):
 			if lines, _, _, err := t.readLog(ctx, b.AppId, b.Id, 60, 0); err == nil {
@@ -162,15 +187,17 @@ func (t *Tools) registerBuilds(s *mcp.Server) {
 			}
 			out.Next = "Tell the user why it failed (error and log_tail), fix the project and deploy again."
 		case out.Finished:
-			out.Succeeded = true
 			if url, _, err := t.appURL(ctx, c, b.AppId); err == nil {
 				out.URL = url
 			}
 			switch out.Build.DeployState {
-			case "live", "":
+			case "live":
 				out.Next = "Deployed. Give the user the URL."
-			case "failing", "never_booted":
-				out.Next = "The build succeeded but the app does not start: report boot_error; for backends check start_command and that the server listens on $PORT."
+			case "failing", "never_booted", "build_failed", "stale_serving", "booted":
+				if lines, _, _, err := t.readLog(ctx, b.AppId, b.Id, 60, t.LogWait); err == nil {
+					out.LogTail = lines
+				}
+				out.Next = "The artifact was built but this deployment is not live: report deploy_state and boot_error. Inspect startup/readiness failures; do not claim this build is serving."
 			default:
 				out.Next = "The build succeeded; deploy_state is " + out.Build.DeployState + ". Report it as is, do not claim the app is live."
 			}
@@ -295,4 +322,21 @@ func (t *Tools) readLog(ctx context.Context, appID, buildID string, tail int, wa
 		return ring, total, false, fmt.Errorf("read build log: %v", err)
 	}
 	return ring, total, false, nil
+}
+
+func (t *Tools) findCommitBuild(ctx context.Context, c *tatnet.ClientWithResponses, appID, commit string) (*tatnet.V1Build, error) {
+	for offset := 0; ; offset += 200 {
+		r, err := c.AppsListBuildsByIdWithResponse(ctx, appID, &tatnet.AppsListBuildsByIdParams{Limit: ptr(200), Offset: ptr(offset)})
+		if err := check("list builds", r, err); err != nil {
+			return nil, err
+		}
+		for i := range r.JSON200.Data {
+			if val(r.JSON200.Data[i].CommitSha) == commit {
+				return &r.JSON200.Data[i], nil
+			}
+		}
+		if len(r.JSON200.Data) < 200 {
+			return nil, nil
+		}
+	}
 }

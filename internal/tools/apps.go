@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -58,13 +59,21 @@ type WhoamiOut struct {
 }
 
 type ListAppsIn struct {
+	Repo      string `json:"repo,omitempty" jsonschema:"exact owner/name"`
+	Branch    string `json:"branch,omitempty" jsonschema:"exact branch"`
+	Name      string `json:"name,omitempty" jsonschema:"exact app name"`
+	Domain    string `json:"domain,omitempty" jsonschema:"exact domain name"`
+	Cursor    string `json:"cursor,omitempty" jsonschema:"next_cursor from the previous result; preserve the same filters"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"maximum matches per call (default 100, max 200)"`
 	ProjectID string `json:"project_id,omitempty" jsonschema:"only apps of this project; omit for all projects"`
 }
 
 type ListAppsOut struct {
-	Apps      []AppView `json:"apps"`
-	Truncated bool      `json:"truncated,omitempty"`
-	Note      string    `json:"note,omitempty"`
+	NextCursor string    `json:"next_cursor,omitempty"`
+	Scope      string    `json:"scope"`
+	Apps       []AppView `json:"apps"`
+	Truncated  bool      `json:"truncated,omitempty"`
+	Note       string    `json:"note,omitempty"`
 }
 
 type GetAppIn struct {
@@ -279,17 +288,14 @@ func (t *Tools) registerApps(s *mcp.Server) {
 		if err != nil {
 			return nil, out, err
 		}
-		apps, truncated, err := t.listApps(ctx, c, in.ProjectID)
+		out, err = t.searchApps(ctx, c, in)
 		if err != nil {
 			return nil, out, err
 		}
-		for _, a := range apps {
-			out.Apps = append(out.Apps, appView(a))
+		if len(out.Apps) == 0 && out.NextCursor == "" {
+			out.Note = emptyNote(t.scoped(ctx, c), "matching apps")
 		}
-		out.Truncated = truncated
-		if len(apps) == 0 {
-			out.Note = emptyNote(t.scoped(ctx, c), "apps")
-		}
+
 		return nil, out, nil
 	})
 
@@ -539,4 +545,76 @@ func backendFromFiles(a tatnet.V1App) error {
 		return fmt.Errorf("app %q is a backend service, and backends cannot be deployed from files yet; push the code to a git repository (or a Docker image) and use create_app + deploy_app", a.Name)
 	}
 	return nil
+}
+
+// Cursor is the next raw API offset: filtering never loses later matches.
+func (t *Tools) searchApps(ctx context.Context, c *tatnet.ClientWithResponses, in ListAppsIn) (ListAppsOut, error) {
+	out := ListAppsOut{Apps: []AppView{}, Scope: "all accessible projects"}
+	if in.ProjectID != "" {
+		out.Scope = "project " + in.ProjectID
+	}
+	offset := 0
+	if in.Cursor != "" {
+		var err error
+		offset, err = strconv.Atoi(in.Cursor)
+		if err != nil || offset < 0 {
+			return out, fmt.Errorf("invalid cursor")
+		}
+	}
+	if in.Limit < 0 {
+		return out, fmt.Errorf("limit must be >= 0")
+	}
+	limit := in.Limit
+	if limit == 0 {
+		limit = 100
+	}
+	limit = min(limit, 200)
+	for scanned := 0; scanned < listCap; {
+		size := min(200, listCap-scanned)
+		params := &tatnet.AppsListAppsByAccountParams{Limit: ptr(size), Offset: ptr(offset)}
+		if in.ProjectID != "" {
+			params.ProjectId = ptr(in.ProjectID)
+		}
+		r, err := c.AppsListAppsByAccountWithResponse(ctx, params)
+		if err := check("list apps", r, err); err != nil {
+			return out, err
+		}
+		for i, a := range r.JSON200.Data {
+			offset++
+			scanned++
+			if (in.Repo != "" && val(a.RepoFullName) != in.Repo) || (in.Branch != "" && val(a.Branch) != in.Branch) || (in.Name != "" && a.Name != in.Name) {
+				continue
+			}
+			if in.Domain != "" {
+				ds, err := t.listDomains(ctx, c, a.Id)
+				if err != nil {
+					return out, err
+				}
+				found := false
+				for _, d := range ds {
+					if strings.EqualFold(strings.TrimSuffix(d.Domain, "."), strings.TrimSuffix(in.Domain, ".")) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+			out.Apps = append(out.Apps, appView(a))
+			if len(out.Apps) == limit {
+				if i+1 < len(r.JSON200.Data) || len(r.JSON200.Data) == size {
+					out.NextCursor = strconv.Itoa(offset)
+					out.Truncated = true
+				}
+				return out, nil
+			}
+		}
+		if len(r.JSON200.Data) < size {
+			return out, nil
+		}
+	}
+	out.NextCursor = strconv.Itoa(offset)
+	out.Truncated = true
+	return out, nil
 }
