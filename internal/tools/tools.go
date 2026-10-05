@@ -123,6 +123,7 @@ func add[In, Out any](s *mcp.Server, tool *mcp.Tool, h mcp.ToolHandlerFor[In, Ou
 
 // Register вешает все инструменты на сервер.
 func (t *Tools) Register(s *mcp.Server) {
+	t.registerAI(s)
 	t.registerAccount(s)
 	t.registerBalance(s)
 	t.registerApps(s)
