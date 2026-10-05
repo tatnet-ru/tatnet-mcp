@@ -4,6 +4,28 @@ MCP-сервер TatNet: управление платформой из Claude (
 ChatGPT и любого клиента [Model Context Protocol](https://modelcontextprotocol.io).
 «Сделай сайт и выложи на TatNet» — это вызов `deploy_files`.
 
+## Quick start / English
+
+TatNet MCP is a remote server for deploying static and SSR websites from an AI
+conversation and managing Git/Docker apps, builds, logs, environment variables
+and domains on TatNet, a Russian cloud platform. Transport: Streamable HTTP.
+Endpoint: `https://mcp.tatnet.cloud/mcp`. Authentication: OAuth or a scoped API key.
+
+```bash
+claude mcp add --transport http tatnet https://mcp.tatnet.cloud/mcp
+```
+
+Connect through OAuth, choose a project and write access, then ask the assistant
+to publish your website. A deployment is ready when both `status=success` and
+`deploy_state=live` are confirmed. Backend apps require Git or a Docker image;
+VMs, databases, DNS zones and S3 use the CLI/API. App deletion and balance top-ups
+are unavailable through MCP.
+
+- [MCP overview](https://tatnet.ru/mcp) and [connection docs](https://docs.tatnet.ru/docs/mcp).
+- [Publish from Claude Code](https://docs.tatnet.ru/docs/guides/en/claude-code-deploy).
+- [Diagnose a failed build](https://docs.tatnet.ru/docs/guides/en/debug-build).
+- [CLI deployment from CI](https://docs.tatnet.ru/docs/guides/en/cli-ci-deploy).
+
 ## Устройство
 
 - **Тонкий слой над публичным `/v1`.** Своей БД, своих прав и бизнес-логики нет:
