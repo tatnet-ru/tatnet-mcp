@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -119,6 +121,14 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				items = append(items, a)
 			}
 		}
+		sort.Slice(items, func(i, j int) bool { return items[i]["id"].(string) < items[j]["id"].(string) })
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit <= 0 {
+			limit = 200
+		}
+		offset = min(offset, len(items))
+		items = items[offset:min(offset+limit, len(items))]
 		js(200, page(items))
 	case len(parts) == 3 && parts[0] == "projects" && parts[2] == "apps" && r.Method == "POST":
 		var body map[string]any
@@ -193,7 +203,14 @@ func (f *fakeAPI) appRoutes(w http.ResponseWriter, r *http.Request, parts []stri
 				}
 			}
 		}
-		js(200, page(f.builds[id]))
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit <= 0 {
+			limit = 200
+		}
+		builds := f.builds[id]
+		offset = min(offset, len(builds))
+		js(200, page(builds[offset:min(offset+limit, len(builds))]))
 	case parts[2] == "builds" && len(parts) == 5 && parts[4] == "logs":
 		w.Header().Set("Content-Type", "text/event-stream")
 		for i := 1; i <= 100; i++ {
@@ -666,6 +683,104 @@ func TestToolDefinitionsDoNotReferToOtherTools(t *testing.T) {
 		}
 		if regexp.MustCompile(`(?i)\bcall (again|first|next)\b`).MatchString(text) {
 			t.Errorf("%s: definition tells the model when to call", tool.Name)
+		}
+	}
+}
+
+func TestBuildSuccessOnlyWhenLive(t *testing.T) {
+	for _, state := range []string{"live", "rolling", "", "unverified", "failing", "never_booted", "stale_serving", "booted", "unexpected"} {
+		t.Run(state, func(t *testing.T) {
+			api, srv := setup(t)
+			api.apps["app1"] = map[string]any{"id": "app1", "name": "web", "project_id": "p1", "status": "success"}
+			api.builds["app1"] = []map[string]any{{"id": "b-new", "app_id": "app1", "status": "success", "deploy_state": "live", "commit_sha": "other"}, {"id": "b-target", "app_id": "app1", "status": "success", "deploy_state": state, "commit_sha": "wanted", "boot_error": "bad startup"}}
+			s, err := connect(t, srv.URL, goodKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			out, text, isErr := call(t, s, "get_build", map[string]any{"app_id": "app1", "commit_sha": "wanted"})
+			if isErr {
+				t.Fatal(text)
+			}
+			if out["build"].(map[string]any)["id"] != "b-target" {
+				t.Fatalf("wrong commit: %v", out)
+			}
+			if out["build_succeeded"] != true || out["succeeded"] != (state == "live") || out["deployment_succeeded"] != (state == "live") {
+				t.Fatalf("contradictory success: %v", out)
+			}
+			if (state == "" || state == "unverified" || state == "rolling" || state == "unexpected") && out["finished"] != false {
+				t.Fatalf("unknown/pending settled: %v", out)
+			}
+			if state != "live" && strings.Contains(out["next"].(string), "Deployed.") {
+				t.Fatal(out)
+			}
+		})
+	}
+}
+
+func TestListAppsFiltersAndContinuation(t *testing.T) {
+	api, srv := setup(t)
+	for i := 0; i < 205; i++ {
+		id := fmt.Sprintf("app%03d", i)
+		name := "other"
+		if i >= 200 {
+			name = "wanted"
+		}
+		api.apps[id] = map[string]any{"id": id, "name": name, "project_id": "p1", "repo_full_name": "org/repo", "branch": "main", "status": "success"}
+	}
+	s, err := connect(t, srv.URL, goodKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seen := map[string]bool{}
+	cursor := ""
+	for i := 0; i < 5; i++ {
+		out, text, isErr := call(t, s, "list_apps", map[string]any{"repo": "org/repo", "branch": "main", "name": "wanted", "limit": 2, "cursor": cursor})
+		if isErr {
+			t.Fatal(text)
+		}
+		for _, item := range out["apps"].([]any) {
+			a := item.(map[string]any)
+			id := a["id"].(string)
+			if seen[id] {
+				t.Fatalf("duplicate %s", id)
+			}
+			seen[id] = true
+		}
+		cursor, _ = out["next_cursor"].(string)
+		if cursor == "" {
+			break
+		}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("matches lost: %v", seen)
+	}
+	out, text, isErr := call(t, s, "list_apps", map[string]any{"domain": "APP204.TATNET.APP.", "name": "wanted"})
+	if isErr || len(out["apps"].([]any)) != 1 {
+		t.Fatalf("domain filter: %v %s", out, text)
+	}
+	_, _, isErr = call(t, s, "list_apps", map[string]any{"cursor": "-1"})
+	if !isErr {
+		t.Fatal("negative cursor accepted")
+	}
+}
+
+func TestBuildLookupContinuesPastFirstPage(t *testing.T) {
+	api, srv := setup(t)
+	api.apps["app1"] = map[string]any{"id": "app1", "name": "web", "project_id": "p1", "status": "success"}
+	for i := 0; i < 205; i++ {
+		api.builds["app1"] = append(api.builds["app1"], map[string]any{"id": fmt.Sprintf("b%d", i), "app_id": "app1", "status": "success", "deploy_state": "live", "commit_sha": fmt.Sprintf("sha%d", i)})
+	}
+	s, err := connect(t, srv.URL, goodKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, filter := range []map[string]any{{"app_id": "app1", "build_id": "b204"}, {"app_id": "app1", "commit_sha": "sha204"}} {
+		out, text, isErr := call(t, s, "get_build", filter)
+		if isErr || out["build"].(map[string]any)["id"] != "b204" {
+			t.Fatalf("%v %s", out, text)
 		}
 	}
 }

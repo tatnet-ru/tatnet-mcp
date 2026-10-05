@@ -131,3 +131,25 @@ mcp-publisher publish
 `destructiveHint`, `openWorldHint` с провода, а ChatGPT отклоняет инструмент,
 у которого флаг не указан явно. Тест `TestToolAnnotationsAreExplicitOnTheWire`
 проверяет сырой `tools/list`.
+
+## Finding apps and confirming a deployment
+
+`list_apps` accepts exact `repo`, `branch`, `name`, and `domain` filters.
+Omitting `project_id` searches all projects visible to the connection.
+`limit` defaults to 100 matches (maximum 200). If `next_cursor` is present,
+continue with that cursor and the same filters; an empty page can still have
+more pages. `scope` states which projects were searched. Filtering happens
+across API pages, so later matches remain discoverable.
+
+`get_build` accepts either `build_id` or an exact full `commit_sha`.
+Both searches continue through build history, rather than just the latest
+50 builds. Omitting both selects the latest build and pins its ID during
+that call's polling. When continuing across calls, pass the returned build
+ID to keep observing the same build.
+
+`build_succeeded` describes artifact creation. `deployment_succeeded` and
+`succeeded` are true only for `status=success` and `deploy_state=live`.
+A missing, unknown, rolling or unverified deployment state remains pending;
+startup failures terminate with `succeeded=false` and diagnostic log lines.
+`finished` means waiting has ended, including failure. Never treat it alone
+as a successful deployment.
