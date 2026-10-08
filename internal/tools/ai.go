@@ -11,24 +11,26 @@ import (
 )
 
 type aiModelsInput struct {
-	Kind string `json:"kind" jsonschema:"Model category: image or video"`
+	Kind string `json:"kind" jsonschema:"Model category: chat (or text), image or video"`
 }
 type aiModelsOutput struct {
 	Catalog json.RawMessage `json:"catalog"`
 }
 
 func (t *Tools) registerAI(s *mcp.Server) {
-	add(s, &mcp.Tool{Name: "ai_models", Description: "List public image or video models, capabilities and current retail prices on ai.tatnet.cloud. No generation or spending.", Annotations: readOnly("AI models and prices")}, t.aiModels)
+	add(s, &mcp.Tool{Name: "ai_models", Description: "List public chat, image or video models and capabilities; media catalogs include current retail prices on ai.tatnet.cloud. No generation or spending.", Annotations: readOnly("AI models and prices")}, t.aiModels)
 }
 func (t *Tools) aiModels(ctx context.Context, _ *mcp.CallToolRequest, in aiModelsInput) (*mcp.CallToolResult, aiModelsOutput, error) {
 	var path string
 	switch in.Kind {
+	case "chat", "text":
+		path = "models"
 	case "image":
 		path = "images/models"
 	case "video":
 		path = "videos/models"
 	default:
-		return nil, aiModelsOutput{}, fmt.Errorf("kind must be image or video")
+		return nil, aiModelsOutput{}, fmt.Errorf("kind must be chat, text, image or video")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://ai.tatnet.cloud/v1/"+path, nil)
 	if err != nil {
