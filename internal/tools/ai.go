@@ -14,7 +14,7 @@ type aiModelsInput struct {
 	Kind string `json:"kind" jsonschema:"Model category: chat (or text), image or video"`
 }
 type aiModelsOutput struct {
-	Catalog json.RawMessage `json:"catalog"`
+	Catalog map[string]any `json:"catalog"`
 }
 
 func (t *Tools) registerAI(s *mcp.Server) {
@@ -47,5 +47,9 @@ func (t *Tools) aiModels(ctx context.Context, _ *mcp.CallToolRequest, in aiModel
 	if err != nil || resp.StatusCode != 200 || !json.Valid(raw) {
 		return nil, aiModelsOutput{}, fmt.Errorf("AI catalog unavailable (HTTP %d)", resp.StatusCode)
 	}
-	return nil, aiModelsOutput{Catalog: raw}, nil
+	var catalog map[string]any
+	if err := json.Unmarshal(raw, &catalog); err != nil || catalog == nil {
+		return nil, aiModelsOutput{}, fmt.Errorf("AI catalog unavailable (invalid catalog)")
+	}
+	return nil, aiModelsOutput{Catalog: catalog}, nil
 }
