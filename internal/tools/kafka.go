@@ -87,6 +87,10 @@ func (t *Tools) kafkaRequest(ctx context.Context, method, path string, body any)
 	return nil, out, err
 }
 func (t *Tools) registerKafka(s *mcp.Server) {
+	add(s, &mcp.Tool{Name: "kafka_canary_node_power", Description: "Closed canary start/stop verification for an owned Kafka node. Requires configured canary account and kafka_cluster:update; VM billing continues.", Annotations: destructive("Kafka canary node power")}, func(ctx context.Context, _ *mcp.CallToolRequest, in KafkaCanaryPowerIn) (*mcp.CallToolResult, KafkaOut, error) {
+		return t.kafkaRequest(ctx, "POST", kafkaPath(in.ProjectID, in.ClusterID)+"/nodes/"+url.PathEscape(in.NodeID)+"/canary-power", map[string]string{"action": in.Action})
+	})
+
 	add(s, &mcp.Tool{Name: "kafka_regions", Description: "Available managed Kafka regions, Dev/HA topology and VM plans.", Annotations: readOnly("Kafka regions")}, func(ctx context.Context, _ *mcp.CallToolRequest, _ WhoamiIn) (*mcp.CallToolResult, KafkaOut, error) {
 		return t.kafkaRequest(ctx, "GET", "/kafka/regions", nil)
 	})
@@ -126,4 +130,11 @@ func (t *Tools) registerKafka(s *mcp.Server) {
 	add(s, &mcp.Tool{Name: "kafka_delete_cluster", Description: "Delete dedicated Kafka cluster, all node VMs and all Kafka data.", Annotations: destructive("Delete Kafka cluster")}, func(ctx context.Context, _ *mcp.CallToolRequest, in KafkaClusterIn) (*mcp.CallToolResult, KafkaOut, error) {
 		return t.kafkaRequest(ctx, "DELETE", kafkaPath(in.ProjectID, in.ClusterID), nil)
 	})
+}
+
+type KafkaCanaryPowerIn struct {
+	ProjectID string `json:"project_id"`
+	ClusterID string `json:"cluster_id"`
+	NodeID    string `json:"node_id"`
+	Action    string `json:"action" jsonschema:"start or stop; only configured canary accounts; billing continues"`
 }
