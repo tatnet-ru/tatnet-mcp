@@ -323,7 +323,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"create_app": "add", "deploy_files": "add", "deploy_app": "add", "set_env": "add", "add_domain": "add",
 		"delete_env": "destroy", "remove_domain": "destroy",
 		"kafka_canary_node_power": "destroy", "kafka_regions": "ro", "kafka_list_clusters": "ro", "kafka_get_cluster": "ro",
-		"kafka_create_cluster": "add", "kafka_update_allowlist": "destroy", "kafka_delete_cluster": "destroy",
+		"kafka_create_cluster": "add", "kafka_resume_cluster": "add", "kafka_update_allowlist": "destroy", "kafka_delete_cluster": "destroy",
 	}
 	if len(res.Tools) != len(want) {
 		t.Errorf("want %d tools, got %d", len(want), len(res.Tools))

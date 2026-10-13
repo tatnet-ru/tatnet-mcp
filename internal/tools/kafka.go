@@ -87,6 +87,7 @@ func (t *Tools) kafkaRequest(ctx context.Context, method, path string, body any)
 	return nil, out, err
 }
 func (t *Tools) registerKafka(s *mcp.Server) {
+	add(s, &mcp.Tool{Name: "kafka_resume_cluster", Description: "Resume Kafka after payment. Billing charges one hour for stopped subscriptions before starting nodes; paid subscriptions are not charged again. Requires kafka_cluster:update.", Annotations: additive("Resume paid Kafka", false)}, t.kafkaResume)
 	add(s, &mcp.Tool{Name: "kafka_canary_node_power", Description: "Closed canary start/stop verification for an owned Kafka node. Requires configured canary account and kafka_cluster:update; VM billing continues.", Annotations: destructive("Kafka canary node power")}, func(ctx context.Context, _ *mcp.CallToolRequest, in KafkaCanaryPowerIn) (*mcp.CallToolResult, KafkaOut, error) {
 		return t.kafkaRequest(ctx, "POST", kafkaPath(in.ProjectID, in.ClusterID)+"/nodes/"+url.PathEscape(in.NodeID)+"/canary-power", map[string]string{"action": in.Action})
 	})
@@ -130,6 +131,10 @@ func (t *Tools) registerKafka(s *mcp.Server) {
 	add(s, &mcp.Tool{Name: "kafka_delete_cluster", Description: "Delete dedicated Kafka cluster, all node VMs and all Kafka data.", Annotations: destructive("Delete Kafka cluster")}, func(ctx context.Context, _ *mcp.CallToolRequest, in KafkaClusterIn) (*mcp.CallToolResult, KafkaOut, error) {
 		return t.kafkaRequest(ctx, "DELETE", kafkaPath(in.ProjectID, in.ClusterID), nil)
 	})
+}
+
+func (t *Tools) kafkaResume(ctx context.Context, _ *mcp.CallToolRequest, in KafkaClusterIn) (*mcp.CallToolResult, KafkaOut, error) {
+	return t.kafkaRequest(ctx, "POST", kafkaPath(in.ProjectID, in.ClusterID)+"/resume", nil)
 }
 
 type KafkaCanaryPowerIn struct {
