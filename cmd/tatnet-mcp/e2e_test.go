@@ -320,7 +320,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 	want := map[string]string{
 		"ai_models": "ro", "whoami": "ro", "get_balance": "ro", "list_apps": "ro", "get_app": "ro", "get_build": "ro", "get_build_logs": "ro",
 		"list_builds": "ro", "list_env": "ro", "list_domains": "ro",
-		"create_app": "add", "deploy_files": "add", "deploy_app": "add", "set_env": "add", "add_domain": "add",
+		"rename_vpc": "add", "create_app": "add", "deploy_files": "add", "deploy_app": "add", "set_env": "add", "add_domain": "add",
 		"delete_env": "destroy", "remove_domain": "destroy",
 		"kafka_canary_node_power": "destroy", "kafka_regions": "ro", "kafka_list_clusters": "ro", "kafka_get_cluster": "ro",
 		"kafka_create_cluster": "add", "kafka_resume_cluster": "add", "kafka_update_allowlist": "destroy", "kafka_delete_cluster": "destroy",

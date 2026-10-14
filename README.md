@@ -200,3 +200,7 @@ OAuth/ключ MCP авторизует управление облаком. Б�
 Оставшийся шаг — такой обмен/делегирование с проверкой прав аккаунта;
 передавать секрет через аргументы модели или общий ключ сервера не следует.
 Для генерации сейчас используйте `tatnet ai` с собственным ключом инференса.
+
+### Rename a VPC
+
+`rename_vpc` accepts `vpc_id` and `name`. It changes only the display label through `PATCH /v1/vpcs/{id}` and requires `vpc:update`; subnet, ports, NAT and OVN identifiers stay unchanged.
