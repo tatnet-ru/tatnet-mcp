@@ -1,17 +1,10 @@
 package tools
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/tatnet-ru/tatnet-mcp/internal/authn"
 )
 
 type KafkaProjectIn struct {
@@ -38,9 +31,7 @@ type KafkaAllowlistIn struct {
 	ClusterID string   `json:"cluster_id"`
 	Allowlist []string `json:"ip_allowlist"`
 }
-type KafkaOut struct {
-	Data map[string]any `json:"data"`
-}
+type KafkaOut = ObjectOut
 
 func kafkaPath(project, id string) string {
 	p := "/projects/" + url.PathEscape(project) + "/kafka-clusters"
@@ -50,41 +41,7 @@ func kafkaPath(project, id string) string {
 	return p
 }
 func (t *Tools) kafkaRequest(ctx context.Context, method, path string, body any) (*mcp.CallToolResult, KafkaOut, error) {
-	p, ok := authn.FromContext(ctx)
-	if !ok {
-		return nil, KafkaOut{}, fmt.Errorf("not authenticated")
-	}
-	var data []byte
-	var err error
-	if body != nil {
-		data, err = json.Marshal(body)
-		if err != nil {
-			return nil, KafkaOut{}, err
-		}
-	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimSuffix(t.APIBase, "/")+path, bytes.NewReader(data))
-	if err != nil {
-		return nil, KafkaOut{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if err = p.Editor(t.InternalSecret)(ctx, req); err != nil {
-		return nil, KafkaOut{}, err
-	}
-	res, err := t.HTTP.Do(req)
-	if err != nil {
-		return nil, KafkaOut{}, err
-	}
-	defer res.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
-	if err != nil {
-		return nil, KafkaOut{}, err
-	}
-	if res.StatusCode >= 400 {
-		return nil, KafkaOut{}, fmt.Errorf("Kafka API returned %d: %s", res.StatusCode, raw)
-	}
-	out := KafkaOut{}
-	err = json.Unmarshal(raw, &out.Data)
-	return nil, out, err
+	return t.objectRequest(ctx, method, path, body)
 }
 func (t *Tools) registerKafka(s *mcp.Server) {
 	add(s, &mcp.Tool{Name: "kafka_resume_cluster", Description: "Resume Kafka after payment. Billing charges one hour for stopped subscriptions before starting nodes; paid subscriptions are not charged again. Requires kafka_cluster:update.", Annotations: additive("Resume paid Kafka", false)}, t.kafkaResume)
