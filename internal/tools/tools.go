@@ -129,6 +129,7 @@ func (t *Tools) Register(s *mcp.Server) {
 	t.registerAI(s)
 	t.registerAccount(s)
 	t.registerBalance(s)
+	t.registerKubernetes(s)
 	t.registerApps(s)
 	t.registerBuilds(s)
 	t.registerEnv(s)

@@ -204,3 +204,10 @@ OAuth/ключ MCP авторизует управление облаком. Б�
 ### Rename a VPC
 
 `rename_vpc` accepts `vpc_id` and `name`. It changes only the display label through `PATCH /v1/vpcs/{id}` and requires `vpc:update`; subnet, ports, NAT and OVN identifiers stay unchanged.
+
+`set_kubernetes_tls` sets the minimum Kubernetes API TLS version using
+`project_id`, `cluster_id`, and `tls_min_version` (`VersionTLS12` or
+`VersionTLS13`). It uses the caller's `/v1` permissions (`k8s_cluster:update`);
+the API records desired state and applies it asynchronously to control-plane
+nodes. TLS 1.3 requires compatible API clients. The cluster must be ready with
+no version upgrade in progress.
