@@ -204,3 +204,11 @@ OAuth/ключ MCP авторизует управление облаком. Б�
 ### Rename a VPC
 
 `rename_vpc` accepts `vpc_id` and `name`. It changes only the display label through `PATCH /v1/vpcs/{id}` and requires `vpc:update`; subnet, ports, NAT and OVN identifiers stay unchanged.
+
+## S3
+
+`list_s3_regions` показывает регионы и публичные endpoints;
+`get_s3_connection_info` возвращает настройки подключения выбранного региона;
+`create_s3_bucket` создаёт приватный по умолчанию бакет с необязательным `region`.
+При отсутствии региона API использует регион по умолчанию. Авторизация — та же
+политика `/v1`, включая OAuth-подключения; права на бакеты проверяет API.
