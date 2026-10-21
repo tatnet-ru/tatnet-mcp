@@ -50,3 +50,32 @@ func TestVMBackupPolicyRequiresPrincipal(t *testing.T) {
 		t.Fatal("missing principal accepted")
 	}
 }
+
+func TestDeleteVMBackupUsesAuthenticatedAPIAndPreservesConflict(t *testing.T) {
+	tool := New("https://api.invalid/v1")
+	calls := 0
+	tool.HTTP.Transport = kafkaRoundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.Method != "DELETE" || r.URL.Path != "/v1/projects/p1/vms/vm1/backups/old" || r.Header.Get("Authorization") != "Bearer tn_live_test" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		return &http.Response{StatusCode: 409, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"detail":"Backup capture is still in progress"}`))}, nil
+	})
+	handler := auth.RequireBearerToken(func(context.Context, string, *http.Request) (*auth.TokenInfo, error) {
+		return &auth.TokenInfo{Expiration: time.Now().Add(time.Minute), Extra: map[string]any{"principal": authn.Principal{APIKey: "tn_live_test"}}}, nil
+	}, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result, _, err := tool.deleteVMBackup(r.Context(), nil, DeleteVMBackupIn{ProjectID: "p1", VMID: "vm1", BackupID: "old"})
+		if err == nil && (result == nil || !result.IsError) {
+			t.Fatal("API rejection was hidden")
+		}
+	}))
+	request := httptest.NewRequest("POST", "/mcp", nil)
+	request.Header.Set("Authorization", "Bearer tn_live_test")
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	if _, _, err := tool.deleteVMBackup(context.Background(), nil, DeleteVMBackupIn{}); err == nil {
+		t.Fatal("unauthenticated deletion accepted")
+	}
+	if calls != 1 {
+		t.Fatalf("unexpected request count %d", calls)
+	}
+}
