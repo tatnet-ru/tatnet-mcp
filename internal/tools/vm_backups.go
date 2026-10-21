@@ -28,7 +28,7 @@ type DeleteVMBackupIn struct {
 func (t *Tools) registerVMBackups(s *mcp.Server) {
 	add(s, &mcp.Tool{Name: "delete_vm_backup", Description: "Permanently delete a VM backup through the public API. Also permits explicitly deleting abandoned legacy pending placeholders older than seven days with no dispatch or stored result. Recent captures, protected versions and required chain ancestors remain guarded by the API. Requires vm:update.", Annotations: destructive("Delete VM backup")}, t.deleteVMBackup)
 	add(s, &mcp.Tool{Name: "get_vm_backup_policy", Description: "Get VM daily backup schedule and actual stored bytes. Requires vm:read.", Annotations: readOnly("VM backup policy")}, t.getVMBackupPolicy)
-	add(s, &mcp.Tool{Name: "set_vm_backup_policy", Description: "Configure daily VM backups and retention. Storage is billed by compressed bytes held over time. Existing prepaid slots are removed with proration before storage billing starts. Requires vm:update.", Annotations: additive("Set VM backup policy", true)}, t.setVMBackupPolicy)
+	add(s, &mcp.Tool{Name: "set_vm_backup_policy", Description: "Configure daily VM backups and retention. Storage is billed by compressed bytes held over time. Requires vm:update.", Annotations: additive("Set VM backup policy", true)}, t.setVMBackupPolicy)
 }
 func backupPolicyPath(project, id string) string {
 	return "/projects/" + url.PathEscape(project) + "/vms/" + url.PathEscape(id) + "/backup-policy"
