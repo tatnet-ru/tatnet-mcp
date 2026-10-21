@@ -214,3 +214,5 @@ OAuth/ключ MCP авторизует управление облаком. Б�
 политика `/v1`, включая OAuth-подключения; права на бакеты проверяет API.
 
 VM tools: `create_vm` accepts the public VM creation settings, including an optional atomic `backup_policy`; `list_vm_backups` returns recovery point origin, expiry, compressed size and immutable deletion deadlines. API permissions and billing checks remain authoritative.
+
+VM backups: `delete_vm_backup` deletes a selected point through the public API, preserving active-job, retention and chain-dependency guards. Abandoned legacy placeholders can be explicitly deleted after seven days without a stored result or dispatch.
