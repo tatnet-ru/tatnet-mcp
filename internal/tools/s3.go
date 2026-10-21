@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -101,22 +102,11 @@ func (t *Tools) registerS3(s *mcp.Server) {
 	})
 	add(s, &mcp.Tool{Name: "get_s3_connection_info", Description: "Get the S3 endpoint and connection examples for a region. Credentials are managed separately.", Annotations: readOnly("S3 connection")}, func(ctx context.Context, _ *mcp.CallToolRequest, in S3RegionIn) (*mcp.CallToolResult, S3ConnectionOut, error) {
 		var out S3ConnectionOut
-		c, err := t.client(ctx)
-		if err != nil {
-			return nil, out, err
+		path := "/object-storage/connection-info"
+		if in.Region != "" {
+			path += "?" + url.Values{"region": {in.Region}}.Encode()
 		}
-		r, err := c.ObjectStorageGetConnectionInfoWithResponse(ctx, func(_ context.Context, r *http.Request) error {
-			if in.Region != "" {
-				q := r.URL.Query()
-				q.Set("region", in.Region)
-				r.URL.RawQuery = q.Encode()
-			}
-			return nil
-		})
-		if err = check("get S3 connection", r, err); err != nil {
-			return nil, out, err
-		}
-		err = json.Unmarshal(r.Body, &out)
+		err := t.s3Request(ctx, http.MethodGet, path, nil, &out)
 		return nil, out, err
 	})
 	add(s, &mcp.Tool{Name: "create_s3_bucket", Description: "Create a paid S3 bucket in the selected region. Names are globally unique. Private by default. Existing bucket names produce a conflict; Use an available region.", Annotations: additive("Create S3 bucket", false)}, func(ctx context.Context, _ *mcp.CallToolRequest, in S3BucketIn) (*mcp.CallToolResult, S3BucketOut, error) {
