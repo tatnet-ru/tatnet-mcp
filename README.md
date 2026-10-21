@@ -216,3 +216,11 @@ OAuth/ключ MCP авторизует управление облаком. Б�
 VM tools: `create_vm` accepts the public VM creation settings, including an optional atomic `backup_policy`; `list_vm_backups` returns recovery point origin, expiry, compressed size and immutable deletion deadlines. API permissions and billing checks remain authoritative.
 
 VM backups: `delete_vm_backup` deletes a selected point through the public API, preserving active-job, retention and chain-dependency guards. Abandoned legacy placeholders can be explicitly deleted after seven days without a stored result or dispatch.
+
+`get_vm_backup_policy` reads the schedule; `set_vm_backup_policy` accepts
+`project_id`, `vm_id`, `enabled`, `hour_utc` (0–23 UTC) and `retention_days`
+(1–365). Storage costs 6 RUB per compressed decimal GB-month (730 hours),
+separate from the VM subscription, without prepaid slots. Disabling a policy
+preserves copies and storage charges. Manual copies do not expire; old locks
+and chain dependencies remain enforced. New captures are independent full
+compressed points. See the [user guide](https://docs.tatnet.ru/docs/infrastructure/vm-backups).
