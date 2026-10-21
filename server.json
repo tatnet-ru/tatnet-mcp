@@ -3,7 +3,7 @@
   "name": "cloud.tatnet/mcp",
   "title": "TatNet — website deployment",
   "description": "Deploy static and SSR websites via AI; manage Git/Docker apps, builds, logs and domains on TatNet.",
-  "version": "1.1.1",
+  "version": "1.4.1",
   "websiteUrl": "https://docs.tatnet.ru/docs/mcp",
   "repository": {
     "url": "https://github.com/tatnet-ru/tatnet-mcp",

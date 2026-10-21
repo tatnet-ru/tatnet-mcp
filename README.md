@@ -212,3 +212,5 @@ OAuth/ключ MCP авторизует управление облаком. Б�
 `create_s3_bucket` создаёт приватный по умолчанию бакет с необязательным `region`.
 При отсутствии региона API использует регион по умолчанию. Авторизация — та же
 политика `/v1`, включая OAuth-подключения; права на бакеты проверяет API.
+
+VM tools: `create_vm` accepts the public VM creation settings, including an optional atomic `backup_policy`; `list_vm_backups` returns recovery point origin, expiry, compressed size and immutable deletion deadlines. API permissions and billing checks remain authoritative.
