@@ -1,4 +1,4 @@
-// Package tools — инструменты MCP для приложений TatNet и баланса аккаунта.
+// Package tools — инструменты MCP для платформы TatNet.
 //
 // Каждый инструмент — тонкий слой над публичным /v1: права, биллинг, проверки
 // и аудит остаются в api. Здесь только три вещи, которых у /v1 нет:
@@ -49,9 +49,11 @@ func New(apiBase string) *Tools {
 }
 
 // Instructions — то, что клиент MCP показывает модели про сервер целиком.
-const Instructions = `TatNet is a Russian cloud platform. These tools manage web apps on TatNet Apps Platform (like Vercel/Netlify).
+const Instructions = `TatNet is a Russian cloud platform. These tools manage apps, managed Kafka, VM creation and backup policies, regional S3 buckets and VPC display names. ai_models reads the public AI model catalog without generating content.
 
 Typical flows:
+- VM backups: get_vm_backup_policy -> set_vm_backup_policy to configure daily captures. Disabling the schedule preserves stored copies and storage charges. list_vm_backups shows recovery points; delete_vm_backup permanently deletes a selected point subject to API protection checks. VM creation requires existing image, plan and cluster IDs; use the CLI/API to discover them.
+- S3: list_s3_regions -> get_s3_connection_info -> create_s3_bucket. Credentials and object operations use the CLI/API.
 - Kafka: kafka_regions -> kafka_create_cluster -> save the one-time customer password -> kafka_get_cluster until ready. SASL_SSL/SCRAM-SHA-512 requires the returned CA. Empty public allowlist denies internet access; VPC provides private endpoints.
 - Publish a website you wrote in the conversation (static or SSR): whoami (pick a project) -> deploy_files -> get_build with wait_seconds until finished -> tell the user the URL. Backend services cannot be deployed from files yet: they need a git repository or a Docker image.
 - Deploy from a git repository or a Docker image: create_app -> deploy_app -> get_build. create_app does not build by itself; to roll out a new Docker image, call deploy_app with image.

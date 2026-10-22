@@ -2,7 +2,8 @@ name: image
 
 # Образ сервера для Apps Platform: апп берёт его по НЕИЗМЕНЯЕМОМУ тегу
 # (sha коммита), а не по плавающему latest — иначе пересборка аппа молча
-# подтягивала бы непроверенную версию.
+# подтягивала бы непроверенную версию. SHA-тег пишет только main:
+# сборка релизного тега не должна перезаписать уже развёрнутый SHA-образ.
 on:
   push:
     branches: [main]
@@ -30,5 +31,5 @@ jobs:
           push: true
           build-args: VERSION=${{ github.ref_name }}-${{ github.sha }}
           tags: |
-            ghcr.io/tatnet-ru/tatnet-mcp:${{ github.sha }}
             ghcr.io/tatnet-ru/tatnet-mcp:${{ github.ref_name }}
+            ${{ github.ref_type == 'branch' && format('ghcr.io/tatnet-ru/tatnet-mcp:{0}', github.sha) || '' }}

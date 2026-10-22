@@ -18,8 +18,11 @@ claude mcp add --transport http tatnet https://mcp.tatnet.cloud/mcp
 Connect through OAuth, choose a project and write access, then ask the assistant
 to publish your website. A deployment is ready when both `status=success` and
 `deploy_state=live` are confirmed. Backend apps require Git or a Docker image;
-VMs, databases, DNS zones and S3 use the CLI/API. App deletion and balance top-ups
-are unavailable through MCP.
+Additional tools cover managed Kafka, VM creation and backup policies, regional
+S3 discovery and bucket creation, VPC display-name changes and the public AI
+model catalog. Use the CLI/API for discovery of VM images/plans/clusters, other
+VM operations, databases, DNS zones, S3 credentials and object operations.
+App deletion and balance top-ups are unavailable through MCP.
 
 - [MCP overview](https://tatnet.ru/mcp) and [connection docs](https://docs.tatnet.ru/docs/mcp).
 - [Publish from Claude Code](https://docs.tatnet.ru/docs/guides/en/claude-code-deploy).
@@ -29,8 +32,9 @@ are unavailable through MCP.
 ## Устройство
 
 - **Тонкий слой над публичным `/v1`.** Своей БД, своих прав и бизнес-логики нет:
-  каждый инструмент зовёт `api.tatnet.ru/v1` через `tatnet-go` ключом того, кто
-  подключился. Права — политика ключа ∩ живая роль создателя, как у CLI и SDK.
+  инструменты управления зовут `api.tatnet.ru/v1` через SDK `tatnet-go` или
+  общий JSON-транспорт с той же авторизацией вызывающего. `ai_models` отдельно
+  читает публичный каталог ИИ без передачи ключа. Права — политика ключа ∩ живая роль создателя, как у CLI и SDK.
   Чего нет в `/v1`, того нет и здесь: сначала ручка в `/v1`, потом инструмент.
 - **Streamable HTTP без состояния** (`/mcp`), официальный
   `modelcontextprotocol/go-sdk`. Реплики взаимозаменяемы, выкат клиентов не рвёт.
@@ -43,7 +47,7 @@ are unavailable through MCP.
   `Authorization: Bearer tn_live_…`. Права в обоих случаях решает api на каждом
   вызове: политика подключения или ключа пересекается с ролью человека.
 
-## Инструменты (приложения и баланс)
+## Инструменты
 
 | Инструмент | Тип | Что делает |
 |---|---|---|
@@ -56,25 +60,36 @@ are unavailable through MCP.
 | `get_build` | чтение | статус с ожиданием до 45 с; при провале — хвост лога |
 | `get_build_logs`, `list_builds` | чтение | лог и история сборок |
 | `list_env`, `set_env` | чтение/запись | переменные; значения секретов не отдаются никогда |
-| `delete_env`, `remove_domain` | удаление | помечены `destructiveHint` — клиент спросит человека |
+| `delete_env`, `remove_domain` | удаление | помечены `destructiveHint`; подтверждение зависит от клиента |
 | `list_domains`, `add_domain` | чтение/запись | домены и инструкция по DNS |
 | `kafka_regions`, `kafka_list_clusters`, `kafka_get_cluster` | чтение | Kafka Dev/HA, ставки часа, управление и прогноз за 730 часов |
 | `kafka_create_cluster` | запись | выделенный платный Kafka-кластер; пароль выдаётся один раз |
 | `kafka_resume_cluster` | запись | оплатить час остановленных подписок и запустить узлы; оплаченные подписки не списываются повторно |
 | `kafka_update_allowlist`, `kafka_delete_cluster` | изменение/удаление | публичный доступ или удаление кластера вместе с данными |
+| `kafka_canary_node_power` | изменение | закрытая проверка start/stop узла для настроенного canary-аккаунта; VM продолжает тарифицироваться |
+| `ai_models` | чтение | публичный каталог chat/image/video; без генерации и расходов |
+| `rename_vpc` | запись | изменить отображаемое имя VPC |
+| `list_s3_regions`, `get_s3_connection_info` | чтение | регионы, endpoints и примеры подключения S3 |
+| `create_s3_bucket` | запись | создать бакет, приватный по умолчанию |
+| `create_vm` | запись | создать платную VM, при необходимости сразу с политикой автобэкапов |
+| `list_vm_backups`, `get_vm_backup_policy` | чтение | точки восстановления, размеры, сроки защиты и расписание |
+| `set_vm_backup_policy` | запись | расписание и срок хранения будущих автоматических копий |
+| `delete_vm_backup` | удаление | безвозвратно удалить точку восстановления с проверками API |
 
 Kafka тарифицируется в API: почасовые VM + 30% за управление; IPv4 и
 дополнительные диски без наценки. Управление оплачивается после первого `ready`.
 MCP передаёт цены и решения биллинга, не рассчитывает их самостоятельно.
 
-Удаления аппов нет намеренно: необратимые действия появятся только с
-двухшаговым подтверждением.
+Удаление аппов не поддерживается. Удаление Kafka и бэкапов уже доступно:
+инструменты помечены `destructiveHint`; показ подтверждения зависит от клиента.
+Серверного двухшагового подтверждения нет, права и защитные ограничения проверяет API.
 
 ## Правила, на которых держится
 
-- **Секрет не попадает в контекст модели.** Контекст логируется у провайдера
-  модели; секрет, попавший туда, считается утёкшим. `.env` из `deploy_files` в
-  архив не кладётся (как у `tatnet deploy`), значения секретов не возвращаются.
+- **Ключи авторизации не возвращаются инструментами.** `.env` из `deploy_files`
+  в архив не кладётся (как у `tatnet deploy`), значения секретных env не читаются.
+  Исключение — создание Kafka: начальный пароль возвращается один раз и попадёт
+  в контекст клиента. Сохраните его в менеджере секретов; не публикуйте логи вызова.
 - **Пустой список ≠ «ничего нет».** `/v1` отвечает 200 и пустым списком, когда
   ключу не видно ресурсов; инструменты говорят это прямо, если ключ ограничен.
 - **Отказ — текст, по которому можно действовать**: что случилось и что делать
@@ -107,11 +122,15 @@ claude mcp add --transport http tatnet https://mcp.tatnet.cloud/mcp \
 
 | Переменная | По умолчанию | |
 |---|---|---|
-| `LISTEN` | `:8080` | |
+| `LISTEN` | `:$PORT`, иначе `:8080` | явный `LISTEN` имеет приоритет над портом Apps Platform |
+| `PORT` | — | порт, выданный Apps Platform; используется, когда `LISTEN` не задан |
 | `API_BASE_URL` | `https://api.tatnet.ru/v1` | stage — `…stage…/v1` |
 | `PUBLIC_URL` | `https://mcp.tatnet.cloud` | основной внешний адрес (метаданные OAuth) |
 | `EXTRA_PUBLIC_URLS` | — | дополнительные внешние имена через запятую (например, на время переезда); на каждом имени сервер говорит от его лица |
 | `METRICS_TOKEN` | — | без него `/metrics` отвечает 404 |
+| `OIDC_ISSUER` | — | издатель OAuth; без него принимаются только API-ключи |
+| `OIDC_JWKS_URL` | `$OIDC_ISSUER/.well-known/jwks.json` | адрес ключей подписи; можно указать внутренний адрес |
+| `MCP_INTERNAL_SECRET` | — | обязателен при включённом OAuth; совпадает с `V1_MCP_INTERNAL_SECRET` у API, хранится как секрет |
 
 Метрики: `tatnet_mcp_tool_calls_total{tool,outcome}`,
 `tatnet_mcp_tool_duration_seconds{tool}`, `tatnet_mcp_auth_failures_total{reason}`.
@@ -119,7 +138,9 @@ claude mcp add --transport http tatnet https://mcp.tatnet.cloud/mcp \
 ## Разработка
 
 ```bash
-go build ./... && go test ./...
+go vet ./...
+go build ./...
+go test -count=1 ./...
 ```
 
 Сквозной тест (`cmd/tatnet-mcp/e2e_test.go`) поднимает настоящий MCP-клиент
@@ -194,14 +215,14 @@ as a successful deployment.
 `ai.tatnet.cloud`: модели, умения и клиентские цены. Инструмент не передаёт
 ключ управления облаком в шлюз инференса и не запускает генерацию.
 
-Платные MCP-операции требуют отдельного `tnai_live_…`, тогда как текущий
+Платные операции генерации ИИ требуют отдельного `tnai_live_…`, тогда как текущий
 OAuth/ключ MCP авторизует управление облаком. Без безопасного обмена на
 ключ инференса конкретного аккаунта генерацию через remote MCP не добавляем.
 Оставшийся шаг — такой обмен/делегирование с проверкой прав аккаунта;
 передавать секрет через аргументы модели или общий ключ сервера не следует.
 Для генерации сейчас используйте `tatnet ai` с собственным ключом инференса.
 
-### Rename a VPC
+## Rename a VPC
 
 `rename_vpc` accepts `vpc_id` and `name`. It changes only the display label through `PATCH /v1/vpcs/{id}` and requires `vpc:update`; subnet, ports, NAT and OVN identifiers stay unchanged.
 
@@ -212,6 +233,8 @@ OAuth/ключ MCP авторизует управление облаком. Б�
 `create_s3_bucket` создаёт приватный по умолчанию бакет с необязательным `region`.
 При отсутствии региона API использует регион по умолчанию. Авторизация — та же
 политика `/v1`, включая OAuth-подключения; права на бакеты проверяет API.
+
+## VM и бэкапы
 
 VM tools: `create_vm` accepts the public VM creation settings, including an optional atomic `backup_policy`; `list_vm_backups` returns recovery point origin, expiry, compressed size and immutable deletion deadlines. API permissions and billing checks remain authoritative.
 
@@ -224,3 +247,49 @@ separate from the VM subscription, without prepaid slots. Disabling a policy
 preserves copies and storage charges. Manual copies do not expire; old locks
 and chain dependencies remain enforced. New captures are independent full
 compressed points. See the [user guide](https://docs.tatnet.ru/docs/infrastructure/vm-backups).
+
+## Выпуск и проверка версии
+
+Тег Git, GitHub Release, образ в GHCR, работающий сервер и карточка MCP Registry
+обновляются отдельно. `server.json` описывает публикацию в Registry; он не
+переключает образ приложения и не задаёт версию бинарника. Версия в MCP
+`initialize` приходит из Docker build-аргумента `VERSION` (в CI — ref + SHA).
+
+На 2026-10-22 проверено:
+
+| Где | Состояние |
+|---|---|
+| Git | последний тег `v1.4.3`, SHA `3743a1a40edf65914df972e021e8890c13d0e9a3` |
+| GitHub Releases | последний оформленный выпуск `v1.1.0`; теги `v1.2.0`–`v1.4.3` существуют отдельно |
+| Production | образ по SHA `v1.4.3`, две реплики, `deploy_state=live`, `/healthz` отвечает 200 |
+| MCP Registry | опубликована `1.1.1`; в исходниках на момент проверки — `1.4.3`; этот PR готовит `1.4.4` |
+| `main` после `v1.4.3` | до этой проверки только README о тарификации бэкапов |
+
+Для уже работающей `v1.4.3` можно оформить GitHub Release на существующем теге
+и опубликовать соответствующий `server.json` в Registry. Пересоздавать тег и
+перекатывать тот же код не требуется. Исправления из этой проверки требуют
+следующей patch-версии (`1.4.4`) после слияния и проверки CI.
+
+Порядок нового выпуска:
+
+1. Обновить `server.json` до ещё не опубликованной версии, описать изменения,
+   запустить vet/build/tests и дождаться успешного CI на коммите выпуска.
+2. Поставить `v<version>` на проверенный коммит. Workflow `image` публикует
+   образы на push в `main` и на тег. Только `main` пишет тег полного SHA;
+   релизный push пишет `v<version>` и не перезаписывает SHA-образ. Сборка образа и тесты — отдельные workflows:
+   наличие образа само по себе не доказывает, что тесты прошли.
+3. Оформить GitHub Release с изменениями, результатами проверок и полным SHA.
+4. При изменении сервера выбрать образ `ghcr.io/tatnet-ru/tatnet-mcp:<полный-SHA>`
+   через `tatnet app update <app-id> --image <image>`, затем
+   `tatnet app deploy <app-id>`. Указать нужный проект CLI (`-p <project-id>`).
+5. Через `tatnet app get <app-id> -o json` проверить `deploy_state=live`,
+   `running_docker_image` и `running_docker_image_digest`; проверить `/healthz`
+   и авторизованный MCP `initialize`/`tools/list`. При необходимости отката
+   вернуть предыдущий SHA образа и повторить deploy.
+6. Из checkout того же тега выполнить `mcp-publisher publish` существующей
+   учётной записью издателя. Проверить `server.version` и `isLatest` по
+   [Registry API](https://registry.modelcontextprotocol.io/v0.1/servers/cloud.tatnet%2Fmcp/versions/latest).
+   `gh release create` и пуш тега не публикуют карточку Registry.
+
+Полнота поддержки операций определяется `tools/list`. Описание карточки Registry
+краткое и не заменяет таблицу инструментов выше.
