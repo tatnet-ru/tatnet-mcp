@@ -106,6 +106,21 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		js(200, map[string]any{"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "read_replica_count": body.Count, "read_host": "db.pg.test", "read_port": 5433, "read_replicas_pending": true})
 	case strings.HasSuffix(r.URL.Path, "/pg-clusters/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") && r.Method == "GET":
 		js(200, map[string]any{"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "read_replica_count": f.lastPGCount, "read_port": 5433, "read_replicas_pending": true})
+	case r.URL.Path == "/vms/plans":
+		if r.URL.Query().Get("role") == "typo" {
+			js(422, map[string]any{"error": map[string]any{"message": "invalid role"}})
+			return
+		}
+		if r.URL.Query().Get("cluster_id") == "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" {
+			js(200, map[string]any{"plans": []any{}})
+			return
+		}
+		js(200, map[string]any{"plans": []any{map[string]any{
+			"id": "plan-4-8", "name": "Standard CPU", "vcpu": 4, "mem": 8192,
+			"disk_size": 40, "disk_price_per_gb": 5, "billing_plan_group_name": "Standard CPU",
+			"price_per_month": 1200, "price_per_day": nil, "price_per_hour": nil,
+			"tags": []string{"Standard CPU"}, "suitable_for": []string{"vm", "k8s"},
+		}}})
 	case r.URL.Path == "/account":
 		res := "*"
 		if f.scoped {
@@ -332,7 +347,8 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"get_vm_backup_policy": "ro", "set_vm_backup_policy": "add", "create_vm": "add", "list_vm_backups": "ro", "delete_vm_backup": "destroy",
 		"list_s3_regions": "ro", "get_s3_connection_info": "ro", "create_s3_bucket": "add",
 		"ai_models": "ro", "whoami": "ro", "get_balance": "ro", "list_apps": "ro", "get_app": "ro", "get_build": "ro", "get_build_logs": "ro",
-		"list_builds": "ro", "list_env": "ro", "list_domains": "ro",
+		"list_vm_plans": "ro",
+		"list_builds":   "ro", "list_env": "ro", "list_domains": "ro",
 		"rename_vpc": "add", "create_app": "add", "deploy_files": "add", "deploy_app": "add", "set_env": "add", "add_domain": "add",
 		"delete_env": "destroy", "remove_domain": "destroy",
 		"kafka_canary_node_power": "destroy", "kafka_regions": "ro", "kafka_list_clusters": "ro", "kafka_get_cluster": "ro",
@@ -361,6 +377,37 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		if tool.OutputSchema == nil {
 			t.Errorf("%s: no output schema", tool.Name)
 		}
+	}
+}
+
+func TestVMPlansDiscovery(t *testing.T) {
+	api, srv := setup(t)
+	s, err := connect(t, srv.URL, goodKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	out, text, failed := call(t, s, "list_vm_plans", map[string]any{})
+	if failed {
+		t.Fatal(text)
+	}
+	plans := out["plans"].([]any)
+	plan := plans[0].(map[string]any)
+	if plan["id"] != "plan-4-8" || plan["mem"] != float64(8192) || plan["price_per_hour"] != nil {
+		t.Fatalf("lost plan identity, memory units or null price: %v", out)
+	}
+	out, text, failed = call(t, s, "list_vm_plans", map[string]any{"cluster_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "role": "k8s"})
+	if failed || len(out["plans"].([]any)) != 0 {
+		t.Fatalf("region filter lost: %v %s", out, text)
+	}
+	_, text, failed = call(t, s, "list_vm_plans", map[string]any{"role": "typo"})
+	if !failed || !strings.Contains(text, "422") {
+		t.Fatalf("validation refusal lost: %s", text)
+	}
+	api.forbid["/vms/plans"] = true
+	_, text, failed = call(t, s, "list_vm_plans", map[string]any{})
+	if !failed || !strings.Contains(text, "403") {
+		t.Fatalf("auth refusal lost: %s", text)
 	}
 }
 
