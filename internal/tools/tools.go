@@ -52,7 +52,8 @@ func New(apiBase string) *Tools {
 const Instructions = `TatNet is a Russian cloud platform. These tools manage apps, managed Kafka, VM creation and backup policies, regional S3 buckets and VPC display names. ai_models reads the public AI model catalog without generating content.
 
 Typical flows:
-- VM backups: get_vm_backup_policy -> set_vm_backup_policy to configure daily captures. Disabling the schedule preserves stored copies and storage charges. list_vm_backups shows recovery points; delete_vm_backup permanently deletes a selected point subject to API protection checks. VM creation requires existing image, plan and cluster IDs; use the CLI/API to discover them.
+- VM creation: list_vm_plans with cluster_id -> choose the plan matching CPU family, vCPU and memory (MiB; 8 GiB = 8192) -> create_vm with the returned plan id. Use the CLI/API to discover images and clusters.
+- VM backups: get_vm_backup_policy -> set_vm_backup_policy to configure daily captures. Disabling the schedule preserves stored copies and storage charges. list_vm_backups shows recovery points; delete_vm_backup permanently deletes a selected point subject to API protection checks.
 - S3: list_s3_regions -> get_s3_connection_info -> create_s3_bucket. Credentials and object operations use the CLI/API.
 - Kafka: kafka_regions -> kafka_create_cluster -> save the one-time customer password -> kafka_get_cluster until ready. SASL_SSL/SCRAM-SHA-512 requires the returned CA. Empty public allowlist denies internet access; VPC provides private endpoints.
 - Publish a website you wrote in the conversation (static or SSR): whoami (pick a project) -> deploy_files -> get_build with wait_seconds until finished -> tell the user the URL. Backend services cannot be deployed from files yet: they need a git repository or a Docker image.
@@ -135,6 +136,7 @@ func (t *Tools) Register(s *mcp.Server) {
 	t.registerBalance(s)
 	t.registerS3(s)
 	t.registerPostgres(s)
+	t.registerVMPlans(s)
 	t.registerApps(s)
 	t.registerBuilds(s)
 	t.registerEnv(s)

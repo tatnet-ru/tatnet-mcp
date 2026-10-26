@@ -159,6 +159,10 @@ func TestConnectedAppActsThroughTheGrantChannel(t *testing.T) {
 	if out["account_id"] != "acc1" {
 		t.Fatalf("whoami through grant: %v", out)
 	}
+	out, text, isErr = call(t, s, "list_vm_plans", nil)
+	if isErr || len(out["plans"].([]any)) != 1 {
+		t.Fatalf("VM plans through grant: %v %s", out, text)
+	}
 	if api.grantCalls.Load() == 0 {
 		t.Fatal("calls must go through the grant channel")
 	}

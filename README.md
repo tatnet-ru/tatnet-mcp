@@ -20,7 +20,8 @@ to publish your website. A deployment is ready when both `status=success` and
 `deploy_state=live` are confirmed. Backend apps require Git or a Docker image;
 Additional tools cover managed Kafka, VM creation and backup policies, regional
 S3 discovery and bucket creation, VPC display-name changes and the public AI
-model catalog. Use the CLI/API for discovery of VM images/plans/clusters, other
+model catalog. `list_vm_plans` discovers VM plan UUIDs, specifications and prices.
+Use the CLI/API for discovery of VM images/clusters, other
 VM operations, databases, DNS zones, S3 credentials and object operations.
 App deletion and balance top-ups are unavailable through MCP.
 
@@ -53,6 +54,7 @@ App deletion and balance top-ups are unavailable through MCP.
 |---|---|---|
 | `whoami` | чтение | аккаунт и проекты, ограничен ли ключ |
 | `get_balance` | чтение | баланс: доступно сейчас, деньги, бонусы и открыты ли они. Только владельцу: ключу нужно `billing:read`, OAuth-подключению — выдача на весь аккаунт. Пополнения нет — оно в панели |
+| `list_vm_plans` | чтение | каталог тарифов через `/v1/vms/plans`: UUID для `vm_plan_id`, CPU, память в МиБ, диски, семейство CPU и цены в рублях. `cluster_id` фильтрует совместимое оборудование, `role` — назначение (по умолчанию `vm`). Требуется `vm:read` |
 | `list_apps`, `get_app` | чтение | аппы; у `get_app` — адрес, домены, последняя сборка |
 | `create_app` | запись | апп из git или Docker-образа; идемпотентен по имени |
 | `deploy_files` | запись | выкладка САЙТА (статика, SSR) из файлов разговора: пакует `tar.gz` → `/v1 …/deployments`; создаёт апп при первом вызове, повтор с тем же именем — тот же апп. ⚠ Бэкенд платформа из папки пока не собирает — отказ до загрузки |
