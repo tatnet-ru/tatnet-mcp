@@ -7,7 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/tatnet-ru/tatnet-go v0.15.0
+	github.com/tatnet-ru/tatnet-go v0.16.3-0.20261026052052-40511ab32f40
 )
 
 require (

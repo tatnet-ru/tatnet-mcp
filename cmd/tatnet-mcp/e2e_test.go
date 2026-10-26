@@ -38,6 +38,7 @@ type fakeAPI struct {
 	scoped  bool
 	forbid  map[string]bool // путь → 403
 	// billingDown — /account/balance отвечает 503 billing_unavailable
+	lastPGCount int
 	billingDown bool
 	buildSeq    int
 	// сколько раз отдать «building», прежде чем сборка станет терминальной
@@ -96,6 +97,15 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	switch {
+	case strings.HasSuffix(r.URL.Path, "/pg-clusters/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/read-replicas") && r.Method == "PUT":
+		var body struct {
+			Count int `json:"read_replica_count"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		f.lastPGCount = body.Count
+		js(200, map[string]any{"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "read_replica_count": body.Count, "read_host": "db.pg.test", "read_port": 5433, "read_replicas_pending": true})
+	case strings.HasSuffix(r.URL.Path, "/pg-clusters/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") && r.Method == "GET":
+		js(200, map[string]any{"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "read_replica_count": f.lastPGCount, "read_port": 5433, "read_replicas_pending": true})
 	case r.URL.Path == "/account":
 		res := "*"
 		if f.scoped {
@@ -327,6 +337,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"delete_env": "destroy", "remove_domain": "destroy",
 		"kafka_canary_node_power": "destroy", "kafka_regions": "ro", "kafka_list_clusters": "ro", "kafka_get_cluster": "ro",
 		"kafka_create_cluster": "add", "kafka_resume_cluster": "add", "kafka_update_allowlist": "destroy", "kafka_delete_cluster": "destroy",
+        "set_postgres_read_replicas": "destroy", "get_postgres_cluster": "ro",
 	}
 	if len(res.Tools) != len(want) {
 		t.Errorf("want %d tools, got %d", len(want), len(res.Tools))
@@ -787,5 +798,35 @@ func TestBuildLookupContinuesPastFirstPage(t *testing.T) {
 		if isErr || out["build"].(map[string]any)["id"] != "b204" {
 			t.Fatalf("%v %s", out, text)
 		}
+	}
+}
+
+func TestPostgresReplicasUseCommonAPIAndReportPending(t *testing.T) {
+	api, srv := setup(t)
+	session, err := connect(t, srv.URL, goodKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	args := map[string]any{"project_id": "11111111-1111-4111-8111-111111111111", "cluster_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "count": 2}
+	out, text, isError := call(t, session, "set_postgres_read_replicas", args)
+	if isError {
+		t.Fatal(text)
+	}
+	cluster := out["cluster"].(map[string]any)
+	if cluster["read_port"] != float64(5433) || cluster["read_replicas_pending"] != true {
+		t.Fatalf("missing readiness fields: %v", cluster)
+	}
+	if api.lastPGCount != 2 {
+		t.Fatal("desired count not sent")
+	}
+	out, text, isError = call(t, session, "get_postgres_cluster", map[string]any{"project_id": args["project_id"], "cluster_id": args["cluster_id"]})
+	if isError || out["cluster"].(map[string]any)["read_replica_count"] != float64(2) {
+		t.Fatalf("cannot inspect replica intent: %s", text)
+	}
+	args["count"] = 6
+	_, _, isError = call(t, session, "set_postgres_read_replicas", args)
+	if !isError || api.lastPGCount != 2 {
+		t.Fatal("invalid count changed remote state")
 	}
 }

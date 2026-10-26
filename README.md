@@ -303,3 +303,16 @@ compressed points. See the [user guide](https://docs.tatnet.ru/docs/infrastructu
 `attach_vm_interface` принимает `project_id`, `vm_id`, `vpc_id`;
 `detach_vm_interface` — `project_id`, `vm_id`, `interface_id`. Обе операции
 используют общий публичный API с проверками `vm:update` и `vpc:write`.
+
+### Managed PostgreSQL
+
+- `get_postgres_cluster` reads the current cluster, dedicated reader endpoint,
+  replica node states, byte lag and pending changes.
+- `set_postgres_read_replicas` sets `count` (0–5) for a `project_id` and
+  `cluster_id`. These are additional paid nodes on the cluster plan, independent
+  of HA. Count zero removes readers; the primary database remains. Replicas
+  never automatically promote and can lag. The read endpoint shares the writer
+  address on TCP/5433. After changing intent, inspect `get_postgres_cluster`
+  until `read_replicas_pending` is false and verify the observed node states.
+
+Both tools use the common public API and preserve API-key/OAuth authorization.
