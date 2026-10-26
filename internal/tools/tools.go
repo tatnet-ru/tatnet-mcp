@@ -134,6 +134,7 @@ func (t *Tools) Register(s *mcp.Server) {
 	t.registerAccount(s)
 	t.registerBalance(s)
 	t.registerS3(s)
+	t.registerPostgres(s)
 	t.registerApps(s)
 	t.registerBuilds(s)
 	t.registerEnv(s)
