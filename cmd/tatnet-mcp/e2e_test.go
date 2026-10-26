@@ -343,6 +343,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
+		"create_load_balancer": "add", "get_load_balancer": "ro",
 		"attach_vm_interface": "add", "detach_vm_interface": "destroy",
 		"get_vm_backup_policy": "ro", "set_vm_backup_policy": "add", "create_vm": "add", "list_vm_backups": "ro", "delete_vm_backup": "destroy",
 		"list_s3_regions": "ro", "get_s3_connection_info": "ro", "create_s3_bucket": "add",

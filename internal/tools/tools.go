@@ -129,6 +129,7 @@ func add[In, Out any](s *mcp.Server, tool *mcp.Tool, h mcp.ToolHandlerFor[In, Ou
 func (t *Tools) Register(s *mcp.Server) {
 	t.registerKafka(s)
 	t.registerNetworking(s)
+	t.registerLoadBalancers(s)
 	t.registerVMs(s)
 	t.registerVMBackups(s)
 	t.registerAI(s)

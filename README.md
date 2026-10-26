@@ -70,6 +70,7 @@ App deletion and balance top-ups are unavailable through MCP.
 | `kafka_update_allowlist`, `kafka_delete_cluster` | изменение/удаление | публичный доступ или удаление кластера вместе с данными |
 | `kafka_canary_node_power` | изменение | закрытая проверка start/stop узла для настроенного canary-аккаунта; VM продолжает тарифицироваться |
 | `ai_models` | чтение | публичный каталог chat/image/video; без генерации и расходов |
+| `create_load_balancer`, `get_load_balancer` | запись/чтение | создать платный LB и проверить статус; `floating_ip_id` закрепляет свободный IP аккаунта, сохраняющийся после удаления LB |
 | `rename_vpc` | запись | изменить отображаемое имя VPC |
 | `list_s3_regions`, `get_s3_connection_info` | чтение | регионы, endpoints и примеры подключения S3 |
 | `create_s3_bucket` | запись | создать бакет, приватный по умолчанию |
