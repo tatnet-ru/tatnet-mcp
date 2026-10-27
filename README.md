@@ -72,6 +72,7 @@ App deletion and balance top-ups are unavailable through MCP.
 | `kafka_canary_node_power` | изменение | закрытая проверка start/stop узла для настроенного canary-аккаунта; VM продолжает тарифицироваться |
 | `ai_models` | чтение | публичный каталог chat/image/video; без генерации и расходов |
 | `rename_vpc` | запись | изменить отображаемое имя VPC |
+| `enable_nat_gateway` | изменение | включить NAT для VPC: `fip_id` выбирает свободный адрес аккаунта в том же регионе; без него выделяется новый. Адрес и NAT тарифицируются; подключение асинхронное |
 | `disable_nat_gateway` | изменение | выключить NAT-шлюз VPC; `retain_ip=true` сохраняет IP за аккаунтом с продолжением тарификации. Снятие NAT асинхронно; перед повторным использованием адреса нужно дождаться `available` через API/CLI. `expected_fip_id` защищает от выключения заменённого шлюза |
 | `list_s3_regions`, `get_s3_connection_info` | чтение | регионы, endpoints и примеры подключения S3 |
 | `create_s3_bucket` | запись | создать бакет, приватный по умолчанию |
