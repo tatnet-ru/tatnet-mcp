@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0
+
+- Add authenticated load balancer creation and detail tools. Select an available
+  reserved Floating IP during creation and read its allocation, VIP and regional
+  status. Config, permissions and billing remain enforced by the public API.
+- Use stable SDK v0.17.0, preserving NAT IP retention and allocation guards.
+- Verify real HTTP responses before and after recreating an LB on the same IP,
+  including busy-IP release and double-claim protection.
+
 ## 1.5.0
 
 - Add NAT gateway disable with explicit public IP retention and an optional
