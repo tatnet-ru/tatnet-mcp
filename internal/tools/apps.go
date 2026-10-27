@@ -279,6 +279,12 @@ const nextWait = "Call get_build with this build_id and wait_seconds=45, repeati
 
 func (t *Tools) registerApps(s *mcp.Server) {
 	add(s, &mcp.Tool{
+		Name: "set_app_branch",
+		Description: "Change a Git app's branch for future builds and push-triggered deployments. Requires app:update. " +
+			"Does not build or deploy. Docker-image and file-deployed apps are rejected by the API.",
+		Annotations: additive("Set app branch", true),
+	}, t.setAppBranch)
+	add(s, &mcp.Tool{
 		Name:        "list_apps",
 		Description: "List apps with their last build status and deploy_state.",
 		Annotations: readOnly("List apps"),

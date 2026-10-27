@@ -57,6 +57,7 @@ App deletion and balance top-ups are unavailable through MCP.
 | `list_vm_plans` | чтение | каталог тарифов через `/v1/vms/plans`: UUID для `vm_plan_id`, CPU, память в МиБ, диски, семейство CPU и цены в рублях. `cluster_id` фильтрует совместимое оборудование, `role` — назначение (по умолчанию `vm`). Требуется `vm:read` |
 | `list_apps`, `get_app` | чтение | аппы; у `get_app` — адрес, домены, последняя сборка |
 | `create_app` | запись | апп из git или Docker-образа; идемпотентен по имени |
+| `set_app_branch` | запись | смена ветки Git-приложения для будущих сборок и автодеплоя; требует `app:update`, текущую версию не выкатывает — затем вызвать `deploy_app` |
 | `deploy_files` | запись | выкладка САЙТА (статика, SSR) из файлов разговора: пакует `tar.gz` → `/v1 …/deployments`; создаёт апп при первом вызове, повтор с тем же именем — тот же апп. ⚠ Бэкенд платформа из папки пока не собирает — отказ до загрузки |
 | `deploy_app` | запись | новая сборка git/docker-аппа; у docker-аппа с `image` — сначала переключает его на новый образ (`PATCH docker_image`), потом собирает |
 | `get_build` | чтение | статус с ожиданием до 45 с; при провале — хвост лога |
@@ -72,6 +73,8 @@ App deletion and balance top-ups are unavailable through MCP.
 | `ai_models` | чтение | публичный каталог chat/image/video; без генерации и расходов |
 | `create_load_balancer`, `get_load_balancer` | запись/чтение | создать платный LB и проверить статус; `floating_ip_id` закрепляет свободный IP аккаунта, сохраняющийся после удаления LB |
 | `rename_vpc` | запись | изменить отображаемое имя VPC |
+| `enable_nat_gateway` | изменение | включить NAT для VPC: `fip_id` выбирает свободный адрес аккаунта в том же регионе; без него выделяется новый. Адрес и NAT тарифицируются; подключение асинхронное |
+| `disable_nat_gateway` | изменение | выключить NAT-шлюз VPC; `retain_ip=true` сохраняет IP за аккаунтом с продолжением тарификации. Снятие NAT асинхронно; перед повторным использованием адреса нужно дождаться `available` через API/CLI. `expected_fip_id` защищает от выключения заменённого шлюза |
 | `list_s3_regions`, `get_s3_connection_info` | чтение | регионы, endpoints и примеры подключения S3 |
 | `create_s3_bucket` | запись | создать бакет, приватный по умолчанию |
 | `create_vm` | запись | создать платную VM, при необходимости сразу с политикой автобэкапов |
@@ -252,6 +255,10 @@ and chain dependencies remain enforced. New captures are independent full
 compressed points. See the [user guide](https://docs.tatnet.ru/docs/infrastructure/vm-backups).
 
 ## Выпуск и проверка версии
+
+Выпуск `1.5.0` добавляет `enable_nat_gateway` и `disable_nat_gateway` с сохранением
+публичного IP. Для повторного подключения дождитесь `available` и передайте
+`fip_id`; сохранённый адрес продолжает тарифицироваться.
 
 Тег Git, GitHub Release, образ в GHCR, работающий сервер и карточка MCP Registry
 обновляются отдельно. `server.json` описывает публикацию в Registry; он не

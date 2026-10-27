@@ -65,6 +65,8 @@ github.com/tatnet-ru/tatnet-go v0.16.3-0.20261026052052-40511ab32f40 h1:vZh4tiWc
 github.com/tatnet-ru/tatnet-go v0.16.3-0.20261026052052-40511ab32f40/go.mod h1:S+8+VKiXIvmoIQgQ3r/J5SHg+XkKsj2zSb0MuoWNq2s=
 github.com/tatnet-ru/tatnet-go v0.16.3-0.20261026130713-0a8b7668d3bb h1:BOZ2sPZYkQoVJGW+fbHE9dAshH37JHrCblU20lx2YvU=
 github.com/tatnet-ru/tatnet-go v0.16.3-0.20261026130713-0a8b7668d3bb/go.mod h1:S+8+VKiXIvmoIQgQ3r/J5SHg+XkKsj2zSb0MuoWNq2s=
+github.com/tatnet-ru/tatnet-go v0.16.3-0.20261027072219-ae8039660587 h1:Akp3rX5osY/R1JLFb9TVVT5cSOim5g5r4vOqaUp0Gwg=
+github.com/tatnet-ru/tatnet-go v0.16.3-0.20261027072219-ae8039660587/go.mod h1:S+8+VKiXIvmoIQgQ3r/J5SHg+XkKsj2zSb0MuoWNq2s=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=

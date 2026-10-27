@@ -58,6 +58,7 @@ Typical flows:
 - Kafka: kafka_regions -> kafka_create_cluster -> save the one-time customer password -> kafka_get_cluster until ready. SASL_SSL/SCRAM-SHA-512 requires the returned CA. Empty public allowlist denies internet access; VPC provides private endpoints.
 - Publish a website you wrote in the conversation (static or SSR): whoami (pick a project) -> deploy_files -> get_build with wait_seconds until finished -> tell the user the URL. Backend services cannot be deployed from files yet: they need a git repository or a Docker image.
 - Deploy from a git repository or a Docker image: create_app -> deploy_app -> get_build. create_app does not build by itself; to roll out a new Docker image, call deploy_app with image.
+- Change a Git app's source branch: set_app_branch -> deploy_app -> get_build. The branch setting applies to future builds and push-triggered deployments; changing it alone preserves the running build.
 - Redeploy an app made from files: deploy_files again with the same project_id and name and the complete project. deploy_app does not build such apps.
 - Environment files (.env) are not uploaded: set their variables with set_env.
 - A failed build: get_build shows the error and the log tail; get_build_logs for more.
