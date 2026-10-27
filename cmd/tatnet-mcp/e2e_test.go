@@ -343,6 +343,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
+		"create_load_balancer": "add", "get_load_balancer": "ro",
 		"disable_nat_gateway": "destroy",
 		"enable_nat_gateway":  "add",
 		"attach_vm_interface": "add", "detach_vm_interface": "destroy",
