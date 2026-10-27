@@ -255,6 +255,10 @@ compressed points. See the [user guide](https://docs.tatnet.ru/docs/infrastructu
 
 ## Выпуск и проверка версии
 
+Выпуск `1.5.0` добавляет `enable_nat_gateway` и `disable_nat_gateway` с сохранением
+публичного IP. Для повторного подключения дождитесь `available` и передайте
+`fip_id`; сохранённый адрес продолжает тарифицироваться.
+
 Тег Git, GitHub Release, образ в GHCR, работающий сервер и карточка MCP Registry
 обновляются отдельно. `server.json` описывает публикацию в Registry; он не
 переключает образ приложения и не задаёт версию бинарника. Версия в MCP
