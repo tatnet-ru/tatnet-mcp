@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "cloud.tatnet/mcp",
   "title": "TatNet — apps and cloud infrastructure",
-  "description": "Deploy websites; manage apps, Kafka, VMs, backups, S3 and VPCs; browse VM plans and AI models.",
-  "version": "1.4.5",
+  "description": "Deploy websites; manage apps, Kafka, VMs, backups, S3 and VPC NAT gateways with retained public IPs.",
+  "version": "1.5.0",
   "websiteUrl": "https://docs.tatnet.ru/docs/mcp",
   "repository": {
     "url": "https://github.com/tatnet-ru/tatnet-mcp",

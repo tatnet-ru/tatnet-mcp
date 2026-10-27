@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0
+
+- Add NAT gateway disable with explicit public IP retention and an optional
+  allocation guard; enable NAT using a retained address or a newly allocated IP.
+  Tool descriptions explain asynchronous attachment, connectivity and billing.
+- Include authenticated Git app branch updates from the current main branch.
+- Verify the NAT retention and reuse cycle against the production API using
+  a local MCP server and the CLI; preserve API authorization and conflict checks.
+
 ## 1.4.4 — unreleased
 
 - Update the tool catalog, server instructions and Registry description to include
