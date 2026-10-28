@@ -71,7 +71,7 @@ App deletion and balance top-ups are unavailable through MCP.
 | `kafka_update_allowlist`, `kafka_delete_cluster` | изменение/удаление | публичный доступ или удаление кластера вместе с данными |
 | `kafka_canary_node_power` | изменение | закрытая проверка start/stop узла для настроенного canary-аккаунта; VM продолжает тарифицироваться |
 | `ai_models` | чтение | публичный каталог chat/image/video; без генерации и расходов |
-| `create_load_balancer`, `get_load_balancer` | запись/чтение | создать платный LB и проверить статус; `floating_ip_id` закрепляет свободный IP аккаунта, сохраняющийся после удаления LB |
+| `create_load_balancer`, `get_load_balancer`, `retain_load_balancer_ip` | запись/чтение | создать платный LB и проверить статус; `floating_ip_id` закрепляет свободный IP аккаунта, сохраняющийся после удаления LB |
 | `rename_vpc` | запись | изменить отображаемое имя VPC |
 | `enable_nat_gateway` | изменение | включить NAT для VPC: `fip_id` выбирает свободный адрес аккаунта в том же регионе; без него выделяется новый. Адрес и NAT тарифицируются; подключение асинхронное |
 | `disable_nat_gateway` | изменение | выключить NAT-шлюз VPC; `retain_ip=true` сохраняет IP за аккаунтом с продолжением тарификации. Снятие NAT асинхронно; перед повторным использованием адреса нужно дождаться `available` через API/CLI. `expected_fip_id` защищает от выключения заменённого шлюза |
@@ -319,3 +319,12 @@ compressed points. See the [user guide](https://docs.tatnet.ru/docs/infrastructu
   until `read_replicas_pending` is false and verify the observed node states.
 
 Both tools use the common public API and preserve API-key/OAuth authorization.
+
+
+`retain_load_balancer_ip` закрепляет именно текущий адрес работающего LB.
+Передайте `project_id`, `load_balancer_id` и точный `expected_vip`: при смене
+адреса API вернёт 409. Операция не пересоздаёт LB и не выбирает другой IP.
+Ответ содержит `floating_ip_id`; этот резерв остаётся после удаления LB.
+Оплата адреса остаётся в текущей подписке LB и переходит в отдельный почасовой
+учёт после её освобождения. Для Kubernetes добавьте UUID в
+`tatnet/lb-floating-ip-id` и исходные Helm/GitOps values до пересоздания Service.
