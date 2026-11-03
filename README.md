@@ -328,3 +328,7 @@ Both tools use the common public API and preserve API-key/OAuth authorization.
 Оплата адреса остаётся в текущей подписке LB и переходит в отдельный почасовой
 учёт после её освобождения. Для Kubernetes добавьте UUID в
 `tatnet/lb-floating-ip-id` и исходные Helm/GitOps values до пересоздания Service.
+Block volumes: `list_volumes`, `attach_app_volume`, `detach_app_volume` use the
+same public API permissions and lifecycle as the dashboard. Attachment requires
+a preformatted ext4 disk, one Firecracker backend replica and regional support.
+Changing mounts restarts the app; detach preserves the volume and its billing.
