@@ -55,6 +55,8 @@ App deletion and balance top-ups are unavailable through MCP.
 | `whoami` | чтение | аккаунт и проекты, ограничен ли ключ |
 | `get_balance` | чтение | баланс: доступно сейчас, деньги, бонусы и открыты ли они. Только владельцу: ключу нужно `billing:read`, OAuth-подключению — выдача на весь аккаунт. Пополнения нет — оно в панели |
 | `list_vm_plans` | чтение | каталог тарифов через `/v1/vms/plans`: UUID для `vm_plan_id`, CPU, память в МиБ, диски, семейство CPU и цены в рублях. `cluster_id` фильтрует совместимое оборудование, `role` — назначение (по умолчанию `vm`). Требуется `vm:read` |
+| `list_volumes` | чтение | тома проекта, резервирование за VM или аппом, путь монтирования и состояние подключения |
+| `attach_app_volume`, `detach_app_volume` | изменение | существующий ext4-том для Firecracker backend в поддерживаемом регионе; перезапуск аппа, асинхронное подключение/отключение с сохранением данных |
 | `list_apps`, `get_app` | чтение | аппы; у `get_app` — адрес, домены, последняя сборка |
 | `create_app` | запись | апп из git или Docker-образа; идемпотентен по имени |
 | `set_app_branch` | запись | смена ветки Git-приложения для будущих сборок и автодеплоя; требует `app:update`, текущую версию не выкатывает — затем вызвать `deploy_app` |
@@ -328,3 +330,7 @@ Both tools use the common public API and preserve API-key/OAuth authorization.
 Оплата адреса остаётся в текущей подписке LB и переходит в отдельный почасовой
 учёт после её освобождения. Для Kubernetes добавьте UUID в
 `tatnet/lb-floating-ip-id` и исходные Helm/GitOps values до пересоздания Service.
+Block volumes: `list_volumes`, `attach_app_volume`, `detach_app_volume` use the
+same public API permissions and lifecycle as the dashboard. Attachment requires
+a preformatted ext4 disk, one Firecracker backend replica and regional support.
+Changing mounts restarts the app; detach preserves the volume and its billing.

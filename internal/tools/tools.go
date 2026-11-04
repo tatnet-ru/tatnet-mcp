@@ -144,4 +144,5 @@ func (t *Tools) Register(s *mcp.Server) {
 	t.registerEnv(s)
 	t.registerDomains(s)
 	t.registerVMInterfaces(s)
+	t.registerVolumes(s)
 }
