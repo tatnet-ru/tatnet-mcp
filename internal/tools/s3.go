@@ -44,6 +44,8 @@ type S3ConnectionOut struct {
 }
 
 func (t *Tools) registerS3(s *mcp.Server) {
+	add(s, &mcp.Tool{Name: "get_s3_usage", Description: "Get whole-bucket storage, object counts, and outgoing bytes/request counts for the current UTC calendar month. snapshot_at=null means storage has not been measured; counters may arrive with delay.", Annotations: readOnly("S3 usage")}, t.getS3Usage)
+
 	add(s, &mcp.Tool{Name: "list_s3_regions", Description: "List S3 regions and public endpoints. enabled=false means the region is closed for new buckets.", Annotations: readOnly("S3 regions")}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, S3RegionsOut, error) {
 		var out S3RegionsOut
 		err := t.apiRequest(ctx, http.MethodGet, "/object-storage/regions", nil, &out)
@@ -63,4 +65,8 @@ func (t *Tools) registerS3(s *mcp.Server) {
 		err := t.apiRequest(ctx, http.MethodPost, "/object-storage/buckets", in, &out)
 		return nil, out, err
 	})
+}
+
+func (t *Tools) getS3Usage(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ObjectOut, error) {
+	return t.objectRequest(ctx, http.MethodGet, "/object-storage/usage", nil)
 }

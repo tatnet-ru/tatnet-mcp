@@ -140,3 +140,27 @@ func TestEnableNatGatewayRequiresPrincipal(t *testing.T) {
 		t.Fatal("missing principal accepted")
 	}
 }
+
+func TestS3UsageUsesAccountAuthenticatedAPI(t *testing.T) {
+	tool := New("https://api.invalid/v1")
+	tool.HTTP.Transport = kafkaRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.Method != "GET" || r.URL.Path != "/v1/object-storage/usage" || r.Header.Get("Authorization") != "Bearer tn_live_test" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"buckets":[{"egress_bytes_month":4096,"traffic_month":"2026-11"}]}`))}, nil
+	})
+	handler := auth.RequireBearerToken(func(context.Context, string, *http.Request) (*auth.TokenInfo, error) {
+		return &auth.TokenInfo{Expiration: time.Now().Add(time.Minute), Extra: map[string]any{"principal": authn.Principal{APIKey: "tn_live_test"}}}, nil
+	}, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, out, err := tool.getS3Usage(r.Context(), nil, struct{}{})
+		if err != nil || out.Data["buckets"] == nil {
+			t.Fatalf("%v %v", out, err)
+		}
+	}))
+	req := httptest.NewRequest("POST", "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer tn_live_test")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if _, _, err := tool.getS3Usage(context.Background(), nil, struct{}{}); err == nil {
+		t.Fatal("unauthenticated call accepted")
+	}
+}
