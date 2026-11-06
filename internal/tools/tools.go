@@ -54,7 +54,7 @@ const Instructions = `TatNet is a Russian cloud platform. These tools manage app
 Typical flows:
 - VM creation: list_vm_plans with cluster_id -> choose the plan matching CPU family, vCPU and memory (MiB; 8 GiB = 8192) -> create_vm with the returned plan id. Use the CLI/API to discover images and clusters.
 - VM backups: get_vm_backup_policy -> set_vm_backup_policy to configure daily captures. Disabling the schedule preserves stored copies and storage charges. list_vm_backups shows recovery points; delete_vm_backup permanently deletes a selected point subject to API protection checks.
-- S3: list_s3_regions -> get_s3_connection_info -> create_s3_bucket. Credentials and object operations use the CLI/API.
+- S3: list_s3_regions -> get_s3_connection_info -> create_s3_bucket. get_s3_usage shows storage and this month’s outgoing traffic. Credentials and object operations use the CLI/API.
 - Kafka: kafka_regions -> kafka_create_cluster -> save the one-time customer password -> kafka_get_cluster until ready. SASL_SSL/SCRAM-SHA-512 requires the returned CA. Empty public allowlist denies internet access; VPC provides private endpoints.
 - Publish a website you wrote in the conversation (static or SSR): whoami (pick a project) -> deploy_files -> get_build with wait_seconds until finished -> tell the user the URL. Backend services cannot be deployed from files yet: they need a git repository or a Docker image.
 - Deploy from a git repository or a Docker image: create_app -> deploy_app -> get_build. create_app does not build by itself; to roll out a new Docker image, call deploy_app with image.

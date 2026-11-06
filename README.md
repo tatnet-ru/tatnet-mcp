@@ -78,6 +78,7 @@ App deletion and balance top-ups are unavailable through MCP.
 | `enable_nat_gateway` | изменение | включить NAT для VPC: `fip_id` выбирает свободный адрес аккаунта в том же регионе; без него выделяется новый. Адрес и NAT тарифицируются; подключение асинхронное |
 | `disable_nat_gateway` | изменение | выключить NAT-шлюз VPC; `retain_ip=true` сохраняет IP за аккаунтом с продолжением тарификации. Снятие NAT асинхронно; перед повторным использованием адреса нужно дождаться `available` через API/CLI. `expected_fip_id` защищает от выключения заменённого шлюза |
 | `list_s3_regions`, `get_s3_connection_info` | чтение | регионы, endpoints и примеры подключения S3 |
+| `get_s3_usage` | чтение | размер бакетов, число объектов и исходящий трафик за текущий месяц UTC |
 | `create_s3_bucket` | запись | создать бакет, приватный по умолчанию |
 | `create_vm` | запись | создать платную VM, при необходимости сразу с политикой автобэкапов |
 | `list_vm_backups`, `get_vm_backup_policy` | чтение | точки восстановления, размеры, сроки защиты и расписание |
@@ -334,3 +335,5 @@ Block volumes: `list_volumes`, `attach_app_volume`, `detach_app_volume` use the
 same public API permissions and lifecycle as the dashboard. Attachment requires
 a preformatted ext4 disk, one Firecracker backend replica and regional support.
 Changing mounts restarts the app; detach preserves the volume and its billing.
+
+`get_s3_usage` читает `/v1/object-storage/usage` с правами вызывающего. `snapshot_at: null` означает отсутствие замера размера, а не пустой бакет. `egress_bytes_month` и `request_count_month` относятся к `traffic_month` (UTC); счётчики поступают с задержкой.
