@@ -337,3 +337,73 @@ a preformatted ext4 disk, one Firecracker backend replica and regional support.
 Changing mounts restarts the app; detach preserves the volume and its billing.
 
 `get_s3_usage` читает `/v1/object-storage/usage` с правами вызывающего. `snapshot_at: null` означает отсутствие замера размера, а не пустой бакет. `egress_bytes_month` и `request_count_month` относятся к `traffic_month` (UTC); счётчики поступают с задержкой.
+
+## Managed Supabase: separate protected endpoint
+
+After deploying the corresponding API, control and consent UI updates, connect
+ChatGPT to **`https://mcp.tatnet.cloud/supabase/mcp`** using OAuth. This endpoint
+has its own protected-resource metadata and OAuth audience. It exposes only:
+
+| Tool | Authority | Behavior |
+| --- | --- | --- |
+| `list_databases` | `supabase:read` | Lists only policy-visible databases; no credentials |
+| `query_database` | `supabase:query` | One SQL statement in a PostgreSQL-enforced read-only transaction |
+| `execute_sql` | `supabase:sql` | SQL scripts as `owner_<ref>`; may alter schema, policies and delete data |
+
+During OAuth consent, select an account, specific databases and read or write
+access. Read is the default. Future databases are excluded. No app, billing or
+infrastructure access is added. Read grants allow database **data**, including
+sensitive rows accessible to the database owner; they are not limited by the
+end-user RLS policies. Write access is database-owner authority, never cluster
+superuser authority. There is no read-only SQL guarantee on `execute_sql`.
+
+Revoke the connected app in the dashboard under API keys. API authorization
+rechecks the live membership and policy for every tool call, including after MCP
+authentication cache hits. Turning off a member's Supabase access also removes
+SQL access. Existing application OAuth grants are not extended to databases.
+
+Default SQL limits: 30 seconds, 100 rows per statement; callers may lower the
+timeout and request up to 1000 rows. SQL bodies are limited to 100 KB. Results
+are bounded and values are text or JSON `null` (distinct from empty text).
+Large values may be truncated. Use SQL pagination for large datasets.
+`query_database` requires a row-returning statement (for example SELECT, SHOW or EXPLAIN).
+It rejects multi-statement scripts, transaction-control commands and
+writes hidden in SQL functions. A read-only transaction is not a sandbox for
+arbitrary CPU work or extension side effects: timeouts, the constrained owner
+role and the platform's extension/egress policy still apply.
+
+`execute_sql` is marked destructive and non-idempotent. Clients must obtain user
+confirmation for destructive SQL. The OAuth write grant is the server-side
+permission boundary; MCP annotations are guidance, not an extra authorization
+check. No automatic retries: after a timeout the outcome may be unknown. Inspect
+the database before manually retrying. Multi-statement scripts can commit a
+prefix if they explicitly manage transactions. Audit records include database,
+actor, SQL fingerprint, limits and execution outcome, without SQL text or rows.
+
+API keys also work as bearer tokens for non-OAuth MCP clients. Pin their policy
+to `supabase:<database UUID>` with `supabase:read` and `supabase:query`; add
+`supabase:sql` only for writes. Query and SQL actions require the creator's live
+`account:manage_supabase` permission; metadata listing requires
+`account:view_supabase`.
+
+### Rollout and verification
+
+1. Deploy `tatnet-supabase-control` with private `POST /v1/projects/{ref}/query`.
+   An older control returns an error for reads; there is no fallback to `/sql`.
+2. Deploy API with `/v1/supabase`, `/query`, `/sql`, the action catalog and the
+   endpoint-specific consent policy. No database migration is required.
+3. Deploy the auth frontend with explicit database selection and read default.
+4. Deploy MCP. Reuse the existing OAuth issuer, JWKS, internal secret and TLS
+   hosting configuration. Protected-resource metadata is at
+   `/.well-known/oauth-protected-resource/supabase/mcp`; DCR allows both resources.
+   `MCP_RESOURCE_URLS` continues to contain the application `/mcp` base resources;
+   the API derives the corresponding `/supabase/mcp` resources from them.
+5. On a disposable managed database, connect ChatGPT through OAuth; verify
+   listing, `SELECT`, read-mode write rejection and explicit write consent.
+   Revoke the connection and verify the next tool request is denied. Never test
+   destructive SQL against a customer database.
+
+Do not expose Studio's `/api/mcp`, pg-meta or PostgreSQL as an alternative. This
+implementation authenticates through TatNet and uses the same public API as CLI.
+The regenerated Go SDK can be released independently; the new CLI commands use
+the existing authenticated HTTP transport and do not require an unreleased SDK.
