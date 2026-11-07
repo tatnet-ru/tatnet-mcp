@@ -85,7 +85,7 @@ type Config struct {
 	// OAuth выключен, принимаются только ключи.
 	Issuer  string
 	JWKSURL string
-	// Resources — адрес ресурса по имени сервера (host → `https://host/mcp`):
+	// Resources — адрес ресурса по имени сервера (host + path → resource URL):
 	// токен обязан быть выдан для того имени, на которое пришёл запрос.
 	Resources map[string]string
 	// InternalSecret — служебный канал к /v1 для подключений.
@@ -127,7 +127,7 @@ func invalid(format string, a ...any) error {
 func (v *Verifier) Verify(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
 	resource := ""
 	if r != nil {
-		resource = v.cfg.Resources[strings.ToLower(r.Host)]
+		resource = v.cfg.Resources[strings.ToLower(r.Host)+r.URL.Path]
 	}
 	// Имя — часть ключа кеша: токен, проверенный для одного имени, не должен
 	// из кеша пройти на другое мимо проверки аудитории.

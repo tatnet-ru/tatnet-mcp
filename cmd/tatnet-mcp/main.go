@@ -8,11 +8,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -66,9 +64,6 @@ func main() {
 func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 	t := tools.New(cfg.APIBaseURL)
 	t.InternalSecret = cfg.InternalSecret
-	server := mcp.NewServer(&mcp.Implementation{Name: "tatnet", Title: "TatNet", Version: version},
-		&mcp.ServerOptions{Instructions: tools.Instructions, Logger: log})
-	t.Register(server)
 
 	verifier := authn.NewVerifier(authn.Config{
 		APIBase: cfg.APIBaseURL, Issuer: cfg.OIDCIssuer, JWKSURL: cfg.OIDCJWKSURL,
@@ -92,96 +87,23 @@ func Routes(cfg config.Config, log *slog.Logger) http.Handler {
 		}
 		return ti, err
 	}
-	// Защита SDK от DNS rebinding рассчитана на ЛОКАЛЬНЫЙ сервер на машине
-	// человека: запрос, пришедший на 127.0.0.1 с чужим Host, она отвергает.
-	// На Apps Platform так приходит КАЖДЫЙ запрос — гостевой агент Firecracker
-	// проксирует в приложение через 127.0.0.1, — и сервер отвечал 403 «invalid
-	// Host header» всем клиентам (живой отказ Claude Code 23.09). Вместо неё —
-	// своя проверка: Host обязан быть публичным адресом сервера.
-	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{Stateless: true, Logger: log, DisableLocalhostProtection: true})
-	// Метаданные защищённого ресурса (RFC 9728): по ссылке из 401 любой клиент
-	// MCP находит сервер авторизации, регистрируется там сам (DCR) и ведёт
-	// человека на вход и экран согласия. Без OAuth ссылки нет — пустой список
-	// серверов обещал бы вход, которого не существует.
-	// На каждом имени сервер говорит от его лица: своя ссылка на метаданные в
-	// 401, свои метаданные с адресом ресурса этого имени.
-	metadataPath := "/.well-known/oauth-protected-resource/mcp"
-	byHost := map[string]http.Handler{}
-	metaByHost := map[string]map[string]any{}
-	for _, pub := range cfg.PublicURLs() {
-		host := publicHost(pub)
-		opts := &auth.RequireBearerTokenOptions{
-			// Ключи /v1 бывают бессрочными — срок токена здесь не обязателен.
-			AllowMissingExpiration: true,
-		}
-		if cfg.OIDCIssuer != "" {
-			opts.ResourceMetadataURL = pub + metadataPath
-			metaByHost[host] = map[string]any{
-				"resource":                 pub + "/mcp",
-				"authorization_servers":    []string{cfg.OIDCIssuer},
-				"scopes_supported":         []string{"openid", "offline_access"},
-				"bearer_methods_supported": []string{"header"},
-				"resource_name":            "TatNet",
-			}
-		}
-		byHost[host] = auth.RequireBearerToken(counted, opts)(mcpHandler)
-	}
-
 	mux := http.NewServeMux()
-	// Чужой Host — отказ до проверки токена: отвечать 401 со ссылкой на наши
-	// метаданные незачем.
-	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
-		h, ok := byHost[strings.ToLower(r.Host)]
-		if !ok {
-			http.Error(w, "unknown host", http.StatusMisdirectedRequest)
-			return
-		}
-		h.ServeHTTP(w, r)
-	})
+	for _, resource := range mcpResources {
+		server := mcp.NewServer(&mcp.Implementation{Name: resource.implementation, Title: resource.name, Version: version},
+			&mcp.ServerOptions{Instructions: resource.instructions, Logger: log})
+		resource.register(t, server)
+		mountMCPResource(mux, cfg, log, resource, server, counted)
+	}
 	if cfg.OIDCIssuer != "" {
-		serveMeta := func(w http.ResponseWriter, r *http.Request) {
-			meta, ok := metaByHost[strings.ToLower(r.Host)]
-			if !ok {
-				http.Error(w, "unknown host", http.StatusMisdirectedRequest)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			_ = json.NewEncoder(w).Encode(meta)
-		}
-		// Путь с суффиксом ресурса — по RFC 9728; корневой — для клиентов,
-		// которые ищут метаданные у хоста.
-		mux.HandleFunc("GET "+metadataPath, serveMeta)
-		mux.HandleFunc("GET /.well-known/oauth-protected-resource", serveMeta)
-		// Регистрация клиентов через прослойку: Hydra отдаёт пустые поля,
-		// которые строгие клиенты отвергают (см. internal/dcr).
-		// Список аудиторий клиента — все имена сервера: токен привязан к имени,
-		// по которому клиент подключался.
-		var resources []string
+		var audiences []string
 		for _, pub := range cfg.PublicURLs() {
-			resources = append(resources, pub+"/mcp")
+			for _, resource := range mcpResources {
+				audiences = append(audiences, pub+resource.path)
+			}
 		}
-		mux.Handle("/oauth/register", dcr.Handler(cfg.OIDCIssuer+"/oauth2/register", resources, nil))
+		mux.Handle("/oauth/register", dcr.Handler(cfg.OIDCIssuer+"/oauth2/register", audiences, nil))
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	mux.Handle("GET /metrics", metrics.Handler(cfg.MetricsToken))
 	return mux
-}
-
-func publicHost(publicURL string) string {
-	u, err := url.Parse(publicURL)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(u.Host)
-}
-
-// resources — адрес ресурса по имени сервера.
-func resources(cfg config.Config) map[string]string {
-	m := map[string]string{}
-	for _, pub := range cfg.PublicURLs() {
-		m[publicHost(pub)] = pub + "/mcp"
-	}
-	return m
 }
