@@ -1,58 +1,81 @@
 # Supabase MCP validation
 
-Implementation prepared in the `codex/supabase-mcp` branches of the local API,
-MCP, CLI, Go SDK, frontend and Supabase Control checkouts. Nothing was deployed
-or published. Customer databases and the source checkouts were not modified.
+Status: deployed and verified on 2026-11-07. The protected endpoint is
+`https://mcp.tatnet.cloud/supabase/mcp`. This report contains no credentials,
+customer query results, or database identifiers.
 
-## Verified
+## Production verification
 
-- API: 195 tests passed across Supabase, IAM policy, API keys, OAuth consent,
-  OAuth provider and the public OpenAPI snapshot. Real PostgreSQL 18 in a
-  disposable Docker container; schema built by the repository's Goose migrations.
-- Supabase Control: `go test ./...` and `go build ./...` passed. The SQL fence
-  test ran against real PostgreSQL: ordinary reads, NULL vs empty text,
-  row/JSON limits, CTE/function/DDL writes, transaction escapes, multi-statement
-  SQL, system role/file-program access and backend cancellation after disabling
-  `statement_timeout`. Private read and write routes reject unauthenticated calls.
-- MCP: `go test ./...` and `go build ./...` passed. Tests use real HTTP MCP clients
-  and a test OAuth issuer. They cover separate audiences (including cache hits),
-  protected-resource metadata, exact database tools, grant headers without token
-  forwarding, denied API calls, destructive/non-idempotent annotations, structured
-  SQL errors and no retries after unknown write outcomes.
-- CLI: `go test ./...` and `go build ./...` passed with its published SDK dependency.
-  New commands require explicit confirmation for write SQL and do not retry.
-  Its extended embedded contract preserves the SDK-backed operations unchanged.
-- Go SDK: regenerated only Supabase additions; `go test ./...` and
-  `go build ./...` passed. Unrelated existing SDK operations were preserved.
-- Frontend: 16 auth consent tests and 27 shared policy tests passed. Auth and
-  user TypeScript checks passed. Auth production build passed with Webpack.
-- Playwright against the production auth build: explicit database selection,
-  read default, write consequences, exact submitted database ids, account reset,
-  retry after API error, keyboard input, loading, no-database/no-account/error
-  states, English copy, dark theme/reduced motion and 390px no-overflow passed.
-  No page errors. Browser plugin was not available; existing local Playwright
-  was used. API replies were test fixtures, not real user sessions.
+- ChatGPT discovered the protected resource, the TatNet OAuth issuer, OIDC, and
+  dynamic client registration without manually entered OAuth credentials.
+- A real ChatGPT OAuth connection selected one explicitly authorized database
+  with owner-SQL access. `list_databases` returned exactly that one database.
+- `query_database` returned `ok = 1` and `transaction_read_only = on` for a
+  synthetic query that did not read application tables.
+- `execute_sql` ran `BEGIN; SET LOCAL application_name = ...; SELECT ...;
+  ROLLBACK;` and returned the expected session marker. No table, schema, or row
+  mutations were used for the production test.
+- The test grant was revoked in TatNet. The next ChatGPT tool request was denied
+  and ChatGPT requested reauthentication.
+- The independent API-key smoke also verified anonymous and invalid-key rejection,
+  resource/issuer discovery, the exact three-tool surface, no superuser/create-role/
+  create-database authority, read-mode escape and multi-statement rejection,
+  query cancellation, row limits, and NULL versus empty-string fidelity.
+- The production panel renders the endpoint and OAuth guide. Database-specific
+  grant summaries show the selected database and permission level without
+  rewriting their IAM policy. The scoped-name loader drops stale account results.
+- The new Studio image was opened through normal Basic authentication on the
+  selected database. **Connect → MCP** displayed the managed OAuth guide instead
+  of upstream self-hosted tunnel setup. Escape closed the connection sheet.
+- Existing Studio apps upgrade on opening from TatNet; PostgreSQL and customer
+  schemas did not require changes for MCP.
 
-## Remaining release verification
+## Merges and artifacts
 
-Deploy in the order in the README, then perform a real ChatGPT OAuth connection
-against a disposable managed database and verify revocation. No real ChatGPT,
-production OAuth issuer, TLS ingress or managed Supabase host was exercised here.
+| Component | Merged change / release |
+| --- | --- |
+| Public API | [Supabase API #1559](https://github.com/manzhikov/tatnet-api/pull/1559), [production promotion #1560](https://github.com/manzhikov/tatnet-api/pull/1560) |
+| MCP server | [MCP #47](https://github.com/tatnet-ru/tatnet-mcp/pull/47) |
+| Supabase Control | [Control #68](https://github.com/manzhikov/tatnet-supabase-control/pull/68); primary and both certificate-sync replicas updated and healthy |
+| Console and consent | [Consent #1145](https://github.com/manzhikov/tatnet-frontend/pull/1145), [production #1146](https://github.com/manzhikov/tatnet-frontend/pull/1146), [connection UI #1147](https://github.com/manzhikov/tatnet-frontend/pull/1147), [production #1148](https://github.com/manzhikov/tatnet-frontend/pull/1148) |
+| Supabase Studio | [Studio #20](https://github.com/tatnet-ru/supabase/pull/20) |
+| CLI | [v0.18.0](https://github.com/tatnet-ru/tatnet-cli/releases/tag/v0.18.0), including npm `tatnet@0.18.0` |
+| Go SDK | [v0.19.0](https://github.com/tatnet-ru/tatnet-go/releases/tag/v0.19.0) |
 
-The auth build used `bun run build --webpack`: Turbopack rejected external
-node_modules symlinks in the isolated checkout. Existing installed dependencies
-were reused without modifying the source checkouts. Static imports for the two
-supported message locales also avoid Webpack's dynamic package-export lookup.
+Deployed images:
 
-The premium static UI audit was run. The auth scope reported five pre-existing
-findings in password-reset/error pages (button/form ownership); none was in the
-changed consent component. The monorepo audit also reported existing ownership
-findings in unrelated admin/user screens. Those screens were not changed.
-Auth ESLint has zero errors and one existing internal-navigation warning.
+- MCP: `ghcr.io/tatnet-ru/tatnet-mcp@sha256:87692af0d02a5aaec7b2b58c620de9c5b837a824b0225b10a252a50619413a27`.
+- Studio: `ghcr.io/tatnet-ru/tatnet-studio@sha256:77e45587546696bbbe2ef877214d61d6d58a6148ddb502cb4d0ca503943b8591`.
 
-Screenshots from the local flow were saved to `/tmp/tatnet-supabase-consent-*.png`.
-Tests use their own accounts, grants and data. Temporary servers and the database
-container are stopped after validation.
+Studio image source is commit `69c9092`; subsequent changes in the same PR
+corrected only CI runner/analyzer configuration. The image workflow completed
+successfully. The selected Studio build reached `status=success` and
+`deploy_state=live` with the expected digest.
+
+## Automated verification
+
+- API: 195 focused tests for Supabase, IAM, API keys, OAuth consent/provider, and
+  the public OpenAPI snapshot, using real PostgreSQL and repository migrations.
+- Control: Go tests and builds, plus the PostgreSQL 15 CI race/integration suite.
+  The SQL fence covers function/CTE/DDL writes, transaction escapes, scripts,
+  system-role/file-program access, cancellation, result limits, escaped
+  credentials, and shared script-result budgets. Private SQL routes reject
+  unauthenticated requests.
+- MCP: Go tests, vet and build; real HTTP MCP clients exercise resource audiences,
+  cache hits, discovery/DCR, grant headers without token forwarding, annotations,
+  structured errors, and no retry after an unknown write outcome.
+- CLI and SDK: Go suites/builds, regenerated SDK contract, and a complete composed
+  CLI contract snapshot check against the pinned SDK plus Supabase extension.
+- Console: consent interaction coverage, 58 focused connection/policy tests, and
+  clean-install CI lint, test, and production builds. Studio CI passed integration
+  tests, lint, typecheck, knip, and CodeQL before merge.
+- Consent browser fixtures additionally covered explicit database selection,
+  read default, write consequences, account reset, retry/error/loading/empty
+  states, English copy, keyboard input, dark theme/reduced motion, and 390px layout.
+  These fixture checks are distinct from the real production OAuth checks above.
+
+Temporary validation servers and the two task-owned PostgreSQL containers were
+stopped. Original source checkouts were not modified.
 
 ## Pre-release refactoring review
 
@@ -78,6 +101,5 @@ The review found three maintenance risks and fixed them before release:
 The OAuth consent API also stopped querying app projects when displaying
 Supabase databases. Its public response shape and permission model are unchanged.
 The API suite (195 tests), all MCP/CLI/control Go suites, builds and the real
-PostgreSQL fence tests were rerun. Frontend visuals and protocol contracts were
-not redesigned. Production remains undeployed; real ChatGPT OAuth/TLS ingress
-verification is still part of the documented rollout.
+PostgreSQL fence tests were rerun before release. Production verification is
+recorded above.

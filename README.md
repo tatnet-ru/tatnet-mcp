@@ -340,8 +340,7 @@ Changing mounts restarts the app; detach preserves the volume and its billing.
 
 ## Managed Supabase: separate protected endpoint
 
-After deploying the corresponding API, control and consent UI updates, connect
-ChatGPT to **`https://mcp.tatnet.cloud/supabase/mcp`** using OAuth. This endpoint
+Connect ChatGPT to **`https://mcp.tatnet.cloud/supabase/mcp`** using OAuth. This endpoint
 has its own protected-resource metadata and OAuth audience. It exposes only:
 
 | Tool | Authority | Behavior |
@@ -349,6 +348,13 @@ has its own protected-resource metadata and OAuth audience. It exposes only:
 | `list_databases` | `supabase:read` | Lists only policy-visible databases; no credentials |
 | `query_database` | `supabase:query` | One SQL statement in a PostgreSQL-enforced read-only transaction |
 | `execute_sql` | `supabase:sql` | SQL scripts as `owner_<ref>`; may alter schema, policies and delete data |
+
+In ChatGPT on the web, open **Plugins → Add → Add custom MCP server**, enter the
+URL above, and choose **OAuth**. Discovery and dynamic client registration are
+automatic. Do not provide Studio passwords, `anon`, or `service_role` keys.
+See the [connection guide](https://docs.tatnet.ru/docs/guides/supabase-chatgpt).
+TatNet's database detail and Studio **Connect → MCP** show the same instructions.
+Existing Studio applications receive the updated UI when opened from TatNet.
 
 During OAuth consent, select an account, specific databases and read or write
 access. Read is the default. Future databases are excluded. No app, billing or
@@ -386,7 +392,7 @@ to `supabase:<database UUID>` with `supabase:read` and `supabase:query`; add
 `account:manage_supabase` permission; metadata listing requires
 `account:view_supabase`.
 
-### Rollout and verification
+### Operator rollout and verification
 
 1. Deploy `tatnet-supabase-control` with private `POST /v1/projects/{ref}/query`.
    An older control returns an error for reads; there is no fallback to `/sql`.
@@ -407,3 +413,8 @@ Do not expose Studio's `/api/mcp`, pg-meta or PostgreSQL as an alternative. This
 implementation authenticates through TatNet and uses the same public API as CLI.
 The regenerated Go SDK can be released independently; the new CLI commands use
 the existing authenticated HTTP transport and do not require an unreleased SDK.
+
+
+Production OAuth, all three database tools, and grant revocation were verified
+through ChatGPT on 2026-11-07 without changing application tables or rows.
+See [validation and deployment evidence](docs/supabase-mcp-validation.md).
