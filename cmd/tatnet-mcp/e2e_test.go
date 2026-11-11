@@ -348,7 +348,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"enable_nat_gateway":  "add",
 		"attach_vm_interface": "add", "detach_vm_interface": "destroy",
 		"get_vm_backup_policy": "ro", "set_vm_backup_policy": "add", "create_vm": "add", "list_vm_backups": "ro", "delete_vm_backup": "destroy",
-		"list_s3_regions": "ro", "get_s3_connection_info": "ro", "create_s3_bucket": "add",
+		"get_s3_usage": "ro", "list_s3_regions": "ro", "get_s3_connection_info": "ro", "create_s3_bucket": "add",
 		"ai_models": "ro", "whoami": "ro", "get_balance": "ro", "list_apps": "ro", "get_app": "ro", "get_build": "ro", "get_build_logs": "ro",
 		"list_vm_plans":  "ro",
 		"set_app_branch": "add",
@@ -359,6 +359,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"kafka_canary_node_power": "destroy", "kafka_regions": "ro", "kafka_list_clusters": "ro", "kafka_get_cluster": "ro",
 		"kafka_create_cluster": "add", "kafka_resume_cluster": "add", "kafka_update_allowlist": "destroy", "kafka_delete_cluster": "destroy",
 		"set_postgres_read_replicas": "destroy", "get_postgres_cluster": "ro",
+		"list_volumes": "ro", "attach_app_volume": "add", "detach_app_volume": "destroy",
 	}
 	if len(res.Tools) != len(want) {
 		t.Errorf("want %d tools, got %d", len(want), len(res.Tools))
@@ -880,5 +881,77 @@ func TestPostgresReplicasUseCommonAPIAndReportPending(t *testing.T) {
 	_, _, isError = call(t, session, "set_postgres_read_replicas", args)
 	if !isError || api.lastPGCount != 2 {
 		t.Fatal("invalid count changed remote state")
+	}
+}
+
+func TestAppVolumeToolsUsePublicAPIAndPreserveAppOwner(t *testing.T) {
+	const projectID = "11111111-1111-4111-8111-111111111111"
+	const volumeID = "22222222-2222-4222-8222-222222222222"
+	const appID = "33333333-3333-4333-8333-333333333333"
+	base := newFakeAPI()
+	attached := false
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/volumes") {
+			base.ServeHTTP(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+goodKey {
+			t.Error("missing caller authorization")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		volume := map[string]any{"id": volumeID, "name": "data", "region_id": "region", "size_gb": 10, "status": "ready", "desired_state": "present", "managed_by": "user", "device_serial": "disk"}
+		if strings.HasSuffix(r.URL.Path, "/attach") {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if body["app_id"] != appID || body["mount_path"] != "/data" || body["vm_id"] != nil {
+				t.Errorf("bad attachment body: %+v", body)
+			}
+			attached = true
+		}
+		if strings.HasSuffix(r.URL.Path, "/detach") {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if body["app_id"] != appID || body["force"] != false {
+				t.Errorf("bad detach body: %+v", body)
+			}
+			attached = false
+		}
+		if attached {
+			volume["attachment"] = map[string]any{"app_id": appID, "vm_id": nil, "mount_path": "/data", "status": "attached"}
+		}
+		if r.URL.Path == "/projects/"+projectID+"/volumes" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{volume}, "count": 1, "limit": 100, "offset": 0})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(volume)
+	}))
+	defer apiSrv.Close()
+	h := Routes(config.Config{APIBaseURL: apiSrv.URL, PublicURL: "https://mcp.test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(h)
+	defer server.Close()
+	session, err := connect(t, server.URL, goodKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	out, text, failed := call(t, session, "list_volumes", map[string]any{"project_id": projectID})
+	if failed || len(out["volumes"].([]any)) != 1 {
+		t.Fatalf("list: %+v %s", out, text)
+	}
+	out, text, failed = call(t, session, "attach_app_volume", map[string]any{"project_id": projectID, "volume_id": volumeID, "app_id": appID, "mount_path": "/data"})
+	if failed || !attached {
+		t.Fatalf("attach: %+v %s", out, text)
+	}
+	owner := out["volume"].(map[string]any)["attachment"].(map[string]any)["app_id"]
+	if owner != appID {
+		t.Fatalf("owner lost from output: %+v", out)
+	}
+	_, text, failed = call(t, session, "detach_app_volume", map[string]any{"project_id": projectID, "volume_id": volumeID, "app_id": appID})
+	if failed || attached {
+		t.Fatalf("detach: %s", text)
 	}
 }

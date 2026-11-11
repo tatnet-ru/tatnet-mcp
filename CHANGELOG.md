@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.8.0
+
+- List block volumes with their app or VM ownership; attach existing ext4 volumes
+  to Firecracker backend apps and detach with an expected app ownership guard.
+- Preserve common API permissions and region support gates. Attachment restarts
+  the app; detachment retains the volume and its data. Both are asynchronous.
+- Shared-SAN canary verified data across redeploy, runtime adoption, reattachment
+  and new builds at zero replicas. Selectel remains disabled.
+
 ## 1.6.0
 
 - Add authenticated load balancer creation and detail tools. Select an available

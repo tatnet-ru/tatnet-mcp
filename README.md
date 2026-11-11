@@ -55,6 +55,8 @@ App deletion and balance top-ups are unavailable through MCP.
 | `whoami` | чтение | аккаунт и проекты, ограничен ли ключ |
 | `get_balance` | чтение | баланс: доступно сейчас, деньги, бонусы и открыты ли они. Только владельцу: ключу нужно `billing:read`, OAuth-подключению — выдача на весь аккаунт. Пополнения нет — оно в панели |
 | `list_vm_plans` | чтение | каталог тарифов через `/v1/vms/plans`: UUID для `vm_plan_id`, CPU, память в МиБ, диски, семейство CPU и цены в рублях. `cluster_id` фильтрует совместимое оборудование, `role` — назначение (по умолчанию `vm`). Требуется `vm:read` |
+| `list_volumes` | чтение | тома проекта, резервирование за VM или аппом, путь монтирования и состояние подключения |
+| `attach_app_volume`, `detach_app_volume` | изменение | существующий ext4-том для Firecracker backend в поддерживаемом регионе; перезапуск аппа, асинхронное подключение/отключение с сохранением данных |
 | `list_apps`, `get_app` | чтение | аппы; у `get_app` — адрес, домены, последняя сборка |
 | `create_app` | запись | апп из git или Docker-образа; идемпотентен по имени |
 | `set_app_branch` | запись | смена ветки Git-приложения для будущих сборок и автодеплоя; требует `app:update`, текущую версию не выкатывает — затем вызвать `deploy_app` |
@@ -78,6 +80,7 @@ App deletion and balance top-ups are unavailable through MCP.
 | `enable_nat_gateway` | изменение | включить NAT для VPC: `fip_id` выбирает свободный адрес аккаунта в том же регионе; без него выделяется новый. Адрес и NAT тарифицируются; подключение асинхронное |
 | `disable_nat_gateway` | изменение | выключить NAT-шлюз VPC; `retain_ip=true` сохраняет IP за аккаунтом с продолжением тарификации. Снятие NAT асинхронно; перед повторным использованием адреса нужно дождаться `available` через API/CLI. `expected_fip_id` защищает от выключения заменённого шлюза |
 | `list_s3_regions`, `get_s3_connection_info` | чтение | регионы, endpoints и примеры подключения S3 |
+| `get_s3_usage` | чтение | размер бакетов, число объектов и исходящий трафик за текущий месяц UTC |
 | `create_s3_bucket` | запись | создать бакет, приватный по умолчанию |
 | `create_vm` | запись | создать платную VM, при необходимости сразу с политикой автобэкапов |
 | `list_vm_backups`, `get_vm_backup_policy` | чтение | точки восстановления, размеры, сроки защиты и расписание |
@@ -334,3 +337,90 @@ Both tools use the common public API and preserve API-key/OAuth authorization.
 ### Kafka monitoring and password recovery
 
 Kafka now exposes `GET /projects/{project}/kafka-clusters/{cluster}/nodes/{node}/metrics?metric=cpu&range=1h` (also memory, disk_io, network_io) and `POST /projects/{project}/kafka-clusters/{cluster}/password`. These use the common authenticated /v1 API, cluster permissions and node ownership checks. Password reset returns a generated password once with `applied=false`; wait for cluster `password_status=applied` before updating clients. An empty allowlist closes public client access.
+Block volumes: `list_volumes`, `attach_app_volume`, `detach_app_volume` use the
+same public API permissions and lifecycle as the dashboard. Attachment requires
+a preformatted ext4 disk, one Firecracker backend replica and regional support.
+Changing mounts restarts the app; detach preserves the volume and its billing.
+
+`get_s3_usage` читает `/v1/object-storage/usage` с правами вызывающего. `snapshot_at: null` означает отсутствие замера размера, а не пустой бакет. `egress_bytes_month` и `request_count_month` относятся к `traffic_month` (UTC); счётчики поступают с задержкой.
+
+## Managed Supabase: separate protected endpoint
+
+Connect ChatGPT to **`https://mcp.tatnet.cloud/supabase/mcp`** using OAuth. This endpoint
+has its own protected-resource metadata and OAuth audience. It exposes only:
+
+| Tool | Authority | Behavior |
+| --- | --- | --- |
+| `list_databases` | `supabase:read` | Lists only policy-visible databases; no credentials |
+| `query_database` | `supabase:query` | One SQL statement in a PostgreSQL-enforced read-only transaction |
+| `execute_sql` | `supabase:sql` | SQL scripts as `owner_<ref>`; may alter schema, policies and delete data |
+
+In ChatGPT on the web, open **Plugins → Add → Add custom MCP server**, enter the
+URL above, and choose **OAuth**. Discovery and dynamic client registration are
+automatic. Do not provide Studio passwords, `anon`, or `service_role` keys.
+See the [connection guide](https://docs.tatnet.ru/docs/guides/supabase-chatgpt).
+TatNet's database detail and Studio **Connect → MCP** show the same instructions.
+Existing Studio applications receive the updated UI when opened from TatNet.
+
+During OAuth consent, select an account, specific databases and read or write
+access. Read is the default. Future databases are excluded. No app, billing or
+infrastructure access is added. Read grants allow database **data**, including
+sensitive rows accessible to the database owner; they are not limited by the
+end-user RLS policies. Write access is database-owner authority, never cluster
+superuser authority. There is no read-only SQL guarantee on `execute_sql`.
+
+Revoke the connected app in the dashboard under API keys. API authorization
+rechecks the live membership and policy for every tool call, including after MCP
+authentication cache hits. Turning off a member's Supabase access also removes
+SQL access. Existing application OAuth grants are not extended to databases.
+
+Default SQL limits: 30 seconds, 100 rows per statement; callers may lower the
+timeout and request up to 1000 rows. SQL bodies are limited to 100 KB. Results
+are bounded and values are text or JSON `null` (distinct from empty text).
+Large values may be truncated. Use SQL pagination for large datasets.
+`query_database` requires a row-returning statement (for example SELECT, SHOW or EXPLAIN).
+It rejects multi-statement scripts, transaction-control commands and
+writes hidden in SQL functions. A read-only transaction is not a sandbox for
+arbitrary CPU work or extension side effects: timeouts, the constrained owner
+role and the platform's extension/egress policy still apply.
+
+`execute_sql` is marked destructive and non-idempotent. Clients must obtain user
+confirmation for destructive SQL. The OAuth write grant is the server-side
+permission boundary; MCP annotations are guidance, not an extra authorization
+check. No automatic retries: after a timeout the outcome may be unknown. Inspect
+the database before manually retrying. Multi-statement scripts can commit a
+prefix if they explicitly manage transactions. Audit records include database,
+actor, SQL fingerprint, limits and execution outcome, without SQL text or rows.
+
+API keys also work as bearer tokens for non-OAuth MCP clients. Pin their policy
+to `supabase:<database UUID>` with `supabase:read` and `supabase:query`; add
+`supabase:sql` only for writes. Query and SQL actions require the creator's live
+`account:manage_supabase` permission; metadata listing requires
+`account:view_supabase`.
+
+### Operator rollout and verification
+
+1. Deploy `tatnet-supabase-control` with private `POST /v1/projects/{ref}/query`.
+   An older control returns an error for reads; there is no fallback to `/sql`.
+2. Deploy API with `/v1/supabase`, `/query`, `/sql`, the action catalog and the
+   endpoint-specific consent policy. No database migration is required.
+3. Deploy the auth frontend with explicit database selection and read default.
+4. Deploy MCP. Reuse the existing OAuth issuer, JWKS, internal secret and TLS
+   hosting configuration. Protected-resource metadata is at
+   `/.well-known/oauth-protected-resource/supabase/mcp`; DCR allows both resources.
+   `MCP_RESOURCE_URLS` continues to contain the application `/mcp` base resources;
+   the API derives the corresponding `/supabase/mcp` resources from them.
+5. On a disposable managed database, connect ChatGPT through OAuth; verify
+   listing, `SELECT`, read-mode write rejection and explicit write consent.
+   Revoke the connection and verify the next tool request is denied. Never test
+   destructive SQL against a customer database.
+
+Do not expose Studio's `/api/mcp`, pg-meta or PostgreSQL as an alternative. This
+implementation authenticates through TatNet and uses the same public API as CLI.
+The regenerated Go SDK can be released independently; the new CLI commands use
+the existing authenticated HTTP transport and do not require an unreleased SDK.
+
+
+Production OAuth, all three database tools, and grant revocation were verified
+through ChatGPT on 2026-11-07 without changing application tables or rows.
+See [validation and deployment evidence](docs/supabase-mcp-validation.md).
