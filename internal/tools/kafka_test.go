@@ -57,3 +57,40 @@ func TestKafkaPathEscapesTenantIdentifiers(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestKafkaMetricsAndResetPreserveScopedAuthorization(t *testing.T) {
+	for _, reset := range []bool{false, true} {
+		tool := New("https://api.invalid/v1")
+		tool.HTTP.Transport = kafkaRoundTrip(func(r *http.Request) (*http.Response, error) {
+			if r.Header.Get("Authorization") != "Bearer tn_live_test" {
+				t.Fatal("principal missing")
+			}
+			if reset {
+				if r.Method != "POST" || r.URL.Path != "/v1/projects/p/kafka-clusters/k/password" {
+					t.Fatal("wrong reset route")
+				}
+			} else {
+				if r.Method != "GET" || r.URL.Path != "/v1/projects/p/kafka-clusters/k/nodes/n/metrics" || r.URL.Query().Get("metric") != "cpu" || r.URL.Query().Get("range") != "1h" {
+					t.Fatalf("wrong metrics request %s", r.URL)
+				}
+			}
+			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"applied":false}`))}, nil
+		})
+		handler := auth.RequireBearerToken(func(context.Context, string, *http.Request) (*auth.TokenInfo, error) {
+			return &auth.TokenInfo{Expiration: time.Now().Add(time.Minute), Extra: map[string]any{"principal": authn.Principal{APIKey: "tn_live_test"}}}, nil
+		}, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var err error
+			if reset {
+				_, _, err = tool.kafkaResetPassword(r.Context(), nil, KafkaClusterIn{ProjectID: "p", ClusterID: "k"})
+			} else {
+				_, _, err = tool.kafkaMetrics(r.Context(), nil, KafkaMetricsIn{ProjectID: "p", ClusterID: "k", NodeID: "n", Metric: "cpu"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		}))
+		req := httptest.NewRequest("POST", "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer tn_live_test")
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+}

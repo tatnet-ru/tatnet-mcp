@@ -43,7 +43,29 @@ func kafkaPath(project, id string) string {
 func (t *Tools) kafkaRequest(ctx context.Context, method, path string, body any) (*mcp.CallToolResult, KafkaOut, error) {
 	return t.objectRequest(ctx, method, path, body)
 }
+
+type KafkaMetricsIn struct {
+	ProjectID string `json:"project_id"`
+	ClusterID string `json:"cluster_id"`
+	NodeID    string `json:"node_id"`
+	Metric    string `json:"metric" jsonschema:"cpu, memory, disk_io or network_io"`
+	Range     string `json:"range,omitempty" jsonschema:"1h, 6h, 24h, 7d or 30d; default 1h"`
+}
+
+func (t *Tools) kafkaResetPassword(ctx context.Context, _ *mcp.CallToolRequest, in KafkaClusterIn) (*mcp.CallToolResult, KafkaOut, error) {
+	return t.kafkaRequest(ctx, "POST", kafkaPath(in.ProjectID, in.ClusterID)+"/password", nil)
+}
+func (t *Tools) kafkaMetrics(ctx context.Context, _ *mcp.CallToolRequest, in KafkaMetricsIn) (*mcp.CallToolResult, KafkaOut, error) {
+	if in.Range == "" {
+		in.Range = "1h"
+	}
+	query := url.Values{"metric": {in.Metric}, "range": {in.Range}}
+	return t.kafkaRequest(ctx, "GET", kafkaPath(in.ProjectID, in.ClusterID)+"/nodes/"+url.PathEscape(in.NodeID)+"/metrics?"+query.Encode(), nil)
+}
 func (t *Tools) registerKafka(s *mcp.Server) {
+	add(s, &mcp.Tool{Name: "kafka_reset_password", Description: "Replace the Kafka customer password. Requires kafka_cluster:update. Returns a new password once, applied=false until regional confirmation. Update all clients; never log the password.", Annotations: destructive("Reset Kafka password")}, t.kafkaResetPassword)
+	add(s, &mcp.Tool{Name: "kafka_node_metrics", Description: "Read VM CPU, memory, disk I/O or network metrics for an owned Kafka node. Requires kafka_cluster:read. This is not Kafka ISR or consumer lag telemetry.", Annotations: readOnly("Kafka node metrics")}, t.kafkaMetrics)
+
 	add(s, &mcp.Tool{Name: "kafka_resume_cluster", Description: "Resume Kafka after payment. Billing charges one hour for stopped subscriptions before starting nodes; paid subscriptions are not charged again. Requires kafka_cluster:update.", Annotations: additive("Resume paid Kafka", false)}, t.kafkaResume)
 	add(s, &mcp.Tool{Name: "kafka_canary_node_power", Description: "Closed canary start/stop verification for an owned Kafka node. Requires configured canary account and kafka_cluster:update; VM billing continues.", Annotations: destructive("Kafka canary node power")}, func(ctx context.Context, _ *mcp.CallToolRequest, in KafkaCanaryPowerIn) (*mcp.CallToolResult, KafkaOut, error) {
 		return t.kafkaRequest(ctx, "POST", kafkaPath(in.ProjectID, in.ClusterID)+"/nodes/"+url.PathEscape(in.NodeID)+"/canary-power", map[string]string{"action": in.Action})
