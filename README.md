@@ -67,6 +67,8 @@ App deletion and balance top-ups are unavailable through MCP.
 | `list_env`, `set_env` | чтение/запись | переменные; значения секретов не отдаются никогда |
 | `delete_env`, `remove_domain` | удаление | помечены `destructiveHint`; подтверждение зависит от клиента |
 | `list_domains`, `add_domain` | чтение/запись | домены и инструкция по DNS |
+| `kafka_node_metrics` | чтение | CPU, память, дисковый ввод-вывод и сеть узла Kafka |
+| `kafka_reset_password` | изменение | новый пароль один раз; дождаться подтверждения применения |
 | `kafka_regions`, `kafka_list_clusters`, `kafka_get_cluster` | чтение | Kafka Dev/HA, ставки часа, управление и прогноз за 730 часов |
 | `kafka_create_cluster` | запись | выделенный платный Kafka-кластер; пароль выдаётся один раз |
 | `kafka_resume_cluster` | запись | оплатить час остановленных подписок и запустить узлы; оплаченные подписки не списываются повторно |
@@ -331,6 +333,10 @@ Both tools use the common public API and preserve API-key/OAuth authorization.
 Оплата адреса остаётся в текущей подписке LB и переходит в отдельный почасовой
 учёт после её освобождения. Для Kubernetes добавьте UUID в
 `tatnet/lb-floating-ip-id` и исходные Helm/GitOps values до пересоздания Service.
+
+### Kafka monitoring and password recovery
+
+Kafka now exposes `GET /projects/{project}/kafka-clusters/{cluster}/nodes/{node}/metrics?metric=cpu&range=1h` (also memory, disk_io, network_io) and `POST /projects/{project}/kafka-clusters/{cluster}/password`. These use the common authenticated /v1 API, cluster permissions and node ownership checks. Password reset returns a generated password once with `applied=false`; wait for cluster `password_status=applied` before updating clients. An empty allowlist closes public client access.
 Block volumes: `list_volumes`, `attach_app_volume`, `detach_app_volume` use the
 same public API permissions and lifecycle as the dashboard. Attachment requires
 a preformatted ext4 disk, one Firecracker backend replica and regional support.

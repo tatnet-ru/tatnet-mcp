@@ -1,13 +1,13 @@
 module github.com/tatnet-ru/tatnet-mcp
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/tatnet-ru/tatnet-go v0.17.0
+	github.com/tatnet-ru/tatnet-go v0.20.0
 )
 
 require (

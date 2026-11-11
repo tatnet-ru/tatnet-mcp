@@ -355,6 +355,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"list_builds":    "ro", "list_env": "ro", "list_domains": "ro",
 		"rename_vpc": "add", "create_app": "add", "deploy_files": "add", "deploy_app": "add", "set_env": "add", "add_domain": "add",
 		"delete_env": "destroy", "remove_domain": "destroy",
+		"kafka_reset_password": "destroy", "kafka_node_metrics": "ro",
 		"kafka_canary_node_power": "destroy", "kafka_regions": "ro", "kafka_list_clusters": "ro", "kafka_get_cluster": "ro",
 		"kafka_create_cluster": "add", "kafka_resume_cluster": "add", "kafka_update_allowlist": "destroy", "kafka_delete_cluster": "destroy",
 		"set_postgres_read_replicas": "destroy", "get_postgres_cluster": "ro",
