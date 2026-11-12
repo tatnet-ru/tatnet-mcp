@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.10.0
+
+- Read Kafka ISR health and committed-offset consumer lag through scoped
+  kafka_health and kafka_history tools. Unknown measurements stay null.
+- Configure sustained console lag warnings with kafka_monitoring_config;
+  API permissions and validation remain authoritative. No external notifications.
+
 ## 1.8.0
 
 - List block volumes with their app or VM ownership; attach existing ext4 volumes
