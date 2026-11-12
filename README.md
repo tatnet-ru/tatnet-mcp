@@ -424,3 +424,10 @@ the existing authenticated HTTP transport and do not require an unreleased SDK.
 Production OAuth, all three database tools, and grant revocation were verified
 through ChatGPT on 2026-11-07 without changing application tables or rows.
 See [validation and deployment evidence](docs/supabase-mcp-validation.md).
+
+Kafka monitoring tools: `kafka_health` reads current replication/group lag;
+`kafka_history` reads replication or selected consumer-group history;
+`kafka_monitoring_config` sets per-group lag warnings (null `lag_threshold`
+disables them, duration 60..3600 seconds in whole minutes). Configuration applies
+asynchronously. Warnings appear in the console only. Unknown lag stays null;
+committed-offset lag is not processing time. Existing scoped API permissions apply.

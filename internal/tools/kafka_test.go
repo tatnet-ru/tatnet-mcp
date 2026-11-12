@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -92,5 +93,50 @@ func TestKafkaMetricsAndResetPreserveScopedAuthorization(t *testing.T) {
 		req := httptest.NewRequest("POST", "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer tn_live_test")
 		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+}
+
+func TestKafkaMonitoringPreservesAuthScopeAndAPIFailures(t *testing.T) {
+	for _, operation := range []string{"health", "history", "config"} {
+		t.Run(operation, func(t *testing.T) {
+			tool := New("https://api.invalid/v1")
+			tool.HTTP.Transport = kafkaRoundTrip(func(r *http.Request) (*http.Response, error) {
+				if r.Header.Get("Authorization") != "Bearer tn_live_test" || !strings.HasPrefix(r.URL.Path, "/v1/projects/p/kafka-clusters/k/monitoring") {
+					t.Fatalf("scope/auth lost %s", r.URL)
+				}
+				if operation == "history" && r.URL.Query().Get("group") != "a&b/λ" {
+					t.Fatal("group escaping lost")
+				}
+				if operation == "config" {
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Fatal(err)
+					}
+					if r.Method != "PUT" || body["lag_threshold"] != nil {
+						t.Fatal("disable config lost")
+					}
+				}
+				return &http.Response{StatusCode: 403, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"detail":"forbidden"}`))}, nil
+			})
+			handler := auth.RequireBearerToken(func(context.Context, string, *http.Request) (*auth.TokenInfo, error) {
+				return &auth.TokenInfo{Expiration: time.Now().Add(time.Minute), Extra: map[string]any{"principal": authn.Principal{APIKey: "tn_live_test"}}}, nil
+			}, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var err error
+				switch operation {
+				case "health":
+					_, _, err = tool.kafkaHealth(r.Context(), nil, KafkaClusterIn{ProjectID: "p", ClusterID: "k"})
+				case "history":
+					_, _, err = tool.kafkaHistory(r.Context(), nil, KafkaHistoryIn{ProjectID: "p", ClusterID: "k", Metric: "consumer_lag", Group: "a&b/λ"})
+				case "config":
+					_, _, err = tool.kafkaMonitoringConfig(r.Context(), nil, KafkaMonitoringConfigIn{ProjectID: "p", ClusterID: "k", LagDurationSeconds: 300})
+				}
+				if err == nil || !strings.Contains(err.Error(), "forbidden") {
+					t.Fatalf("API denial lost: %v", err)
+				}
+			}))
+			req := httptest.NewRequest("POST", "/mcp", nil)
+			req.Header.Set("Authorization", "Bearer tn_live_test")
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+		})
 	}
 }

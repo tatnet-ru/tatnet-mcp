@@ -62,7 +62,42 @@ func (t *Tools) kafkaMetrics(ctx context.Context, _ *mcp.CallToolRequest, in Kaf
 	query := url.Values{"metric": {in.Metric}, "range": {in.Range}}
 	return t.kafkaRequest(ctx, "GET", kafkaPath(in.ProjectID, in.ClusterID)+"/nodes/"+url.PathEscape(in.NodeID)+"/metrics?"+query.Encode(), nil)
 }
+
+type KafkaHistoryIn struct {
+	ProjectID string `json:"project_id"`
+	ClusterID string `json:"cluster_id"`
+	Metric    string `json:"metric" jsonschema:"replication or consumer_lag"`
+	Range     string `json:"range,omitempty" jsonschema:"1h, 6h, 24h, 7d or 30d; default 1h"`
+	Group     string `json:"group,omitempty" jsonschema:"Exact consumer group for consumer_lag"`
+}
+type KafkaMonitoringConfigIn struct {
+	ProjectID          string `json:"project_id"`
+	ClusterID          string `json:"cluster_id"`
+	LagThreshold       *int64 `json:"lag_threshold" jsonschema:"Positive total offset lag per group; null disables warnings"`
+	LagDurationSeconds int    `json:"lag_duration_seconds" jsonschema:"60..3600 seconds, multiple of 60"`
+}
+
+func (t *Tools) kafkaHealth(ctx context.Context, _ *mcp.CallToolRequest, in KafkaClusterIn) (*mcp.CallToolResult, KafkaOut, error) {
+	return t.kafkaRequest(ctx, "GET", kafkaPath(in.ProjectID, in.ClusterID)+"/monitoring", nil)
+}
+func (t *Tools) kafkaHistory(ctx context.Context, _ *mcp.CallToolRequest, in KafkaHistoryIn) (*mcp.CallToolResult, KafkaOut, error) {
+	if in.Range == "" {
+		in.Range = "1h"
+	}
+	query := url.Values{"metric": {in.Metric}, "range": {in.Range}}
+	if in.Group != "" {
+		query.Set("group", in.Group)
+	}
+	return t.kafkaRequest(ctx, "GET", kafkaPath(in.ProjectID, in.ClusterID)+"/monitoring/metrics?"+query.Encode(), nil)
+}
+func (t *Tools) kafkaMonitoringConfig(ctx context.Context, _ *mcp.CallToolRequest, in KafkaMonitoringConfigIn) (*mcp.CallToolResult, KafkaOut, error) {
+	return t.kafkaRequest(ctx, "PUT", kafkaPath(in.ProjectID, in.ClusterID)+"/monitoring", map[string]any{"lag_threshold": in.LagThreshold, "lag_duration_seconds": in.LagDurationSeconds})
+}
 func (t *Tools) registerKafka(s *mcp.Server) {
+	add(s, &mcp.Tool{Name: "kafka_health", Description: "Read Kafka replication health and committed-offset consumer lag. Unknown is not zero; check observation freshness. Requires kafka_cluster:read.", Annotations: readOnly("Kafka health")}, t.kafkaHealth)
+	add(s, &mcp.Tool{Name: "kafka_history", Description: "Read tenant-scoped replication or group lag history. Gaps mean unknown. Requires kafka_cluster:read.", Annotations: readOnly("Kafka history")}, t.kafkaHistory)
+	add(s, &mcp.Tool{Name: "kafka_monitoring_config", Description: "Set console lag warnings separately per group. Null threshold disables warnings. Applied asynchronously; sends no external notifications. Requires kafka_cluster:update.", Annotations: additive("Configure Kafka monitoring", true)}, t.kafkaMonitoringConfig)
+
 	add(s, &mcp.Tool{Name: "kafka_reset_password", Description: "Replace the Kafka customer password. Requires kafka_cluster:update. Returns a new password once, applied=false until regional confirmation. Update all clients; never log the password.", Annotations: destructive("Reset Kafka password")}, t.kafkaResetPassword)
 	add(s, &mcp.Tool{Name: "kafka_node_metrics", Description: "Read VM CPU, memory, disk I/O or network metrics for an owned Kafka node. Requires kafka_cluster:read. This is not Kafka ISR or consumer lag telemetry.", Annotations: readOnly("Kafka node metrics")}, t.kafkaMetrics)
 

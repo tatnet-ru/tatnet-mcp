@@ -3,7 +3,7 @@
   "name": "cloud.tatnet/mcp",
   "title": "TatNet — apps and cloud infrastructure",
   "description": "Deploy websites; manage apps, persistent app volumes, VMs, S3, NAT gateways and load balancers.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "websiteUrl": "https://docs.tatnet.ru/docs/mcp",
   "repository": {
     "url": "https://github.com/tatnet-ru/tatnet-mcp",
