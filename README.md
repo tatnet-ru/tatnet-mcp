@@ -431,3 +431,15 @@ Kafka monitoring tools: `kafka_health` reads current replication/group lag;
 disables them, duration 60..3600 seconds in whole minutes). Configuration applies
 asynchronously. Warnings appear in the console only. Unknown lag stays null;
 committed-offset lag is not processing time. Existing scoped API permissions apply.
+
+
+## Valkey transport
+
+`create_valkey_cluster` creates a paid instance with `tls_mode` defaulting to
+`required`. `preferred` accepts TLS and plaintext on the same endpoint port;
+`disabled` accepts plaintext only. Creation returns a password once: save it
+securely. `get_valkey_cluster` returns the mode, readiness gate and applied
+receipt. `update_valkey_tls_mode` changes intent through the public API; changing
+to required closes plaintext sessions. Old nodes require replacement first,
+reported as 409. Wait for `parameters_applied` before claiming completion.
+All authorization, validation and audit decisions remain in the API.

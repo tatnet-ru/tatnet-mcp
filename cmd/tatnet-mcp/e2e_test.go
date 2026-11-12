@@ -361,6 +361,8 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"kafka_create_cluster": "add", "kafka_resume_cluster": "add", "kafka_update_allowlist": "destroy", "kafka_delete_cluster": "destroy",
 		"set_postgres_read_replicas": "destroy", "get_postgres_cluster": "ro",
 		"list_volumes": "ro", "attach_app_volume": "add", "detach_app_volume": "destroy",
+
+		"create_valkey_cluster": "add", "get_valkey_cluster": "ro", "update_valkey_tls_mode": "destroy",
 	}
 	if len(res.Tools) != len(want) {
 		t.Errorf("want %d tools, got %d", len(want), len(res.Tools))
