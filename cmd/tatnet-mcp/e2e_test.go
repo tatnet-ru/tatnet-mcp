@@ -363,6 +363,7 @@ func TestToolsHaveAnnotations(t *testing.T) {
 		"list_volumes": "ro", "attach_app_volume": "add", "detach_app_volume": "destroy",
 
 		"create_valkey_cluster": "add", "get_valkey_cluster": "ro", "update_valkey_tls_mode": "destroy",
+		"list_function_regions": "ro", "deploy_function": "add",
 	}
 	if len(res.Tools) != len(want) {
 		t.Errorf("want %d tools, got %d", len(want), len(res.Tools))

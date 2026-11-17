@@ -69,6 +69,8 @@ App deletion and balance top-ups are unavailable through MCP.
 | `list_domains`, `add_domain` | чтение/запись | домены и инструкция по DNS |
 | `kafka_node_metrics` | чтение | CPU, память, дисковый ввод-вывод и сеть узла Kafka |
 | `kafka_reset_password` | изменение | новый пароль один раз; дождаться подтверждения применения |
+| `list_function_regions` | чтение | доступные регионы деплоя функций в проекте |
+| `deploy_function` | запись | собрать и развернуть функцию, с выбором региона при первом деплое |
 | `kafka_regions`, `kafka_list_clusters`, `kafka_get_cluster` | чтение | Kafka Dev/HA, ставки часа, управление и прогноз за 730 часов |
 | `kafka_create_cluster` | запись | выделенный платный Kafka-кластер; пароль выдаётся один раз |
 | `kafka_resume_cluster` | запись | оплатить час остановленных подписок и запустить узлы; оплаченные подписки не списываются повторно |
