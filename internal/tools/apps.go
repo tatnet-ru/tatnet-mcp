@@ -279,6 +279,16 @@ const nextWait = "Call get_build with this build_id and wait_seconds=45, repeati
 
 func (t *Tools) registerApps(s *mcp.Server) {
 	add(s, &mcp.Tool{
+		Name:        "get_app_trusted_ips",
+		Description: "Get the IPv4 allowlist for all domains and deployments of an app. Requires app:read.",
+		Annotations: readOnly("Get app trusted IPs"),
+	}, t.getAppTrustedIPs)
+	add(s, &mcp.Tool{
+		Name:        "set_app_trusted_ips",
+		Description: "Replace the IPv4 allowlist for all domains and deployments of an app. An empty list makes the app public. Requires app:update.",
+		Annotations: destructive("Replace app trusted IPs"),
+	}, t.setAppTrustedIPs)
+	add(s, &mcp.Tool{
 		Name: "set_app_branch",
 		Description: "Change a Git app's branch for future builds and push-triggered deployments. Requires app:update. " +
 			"Does not build or deploy. Docker-image and file-deployed apps are rejected by the API.",
